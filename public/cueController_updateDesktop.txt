@@ -1,0 +1,64 @@
+  // Desktop update
+  updateDesktop(ballsSettled = true) {
+    const cueBall = this.poolTable.getCueBall();
+    
+    if (!cueBall || !ballsSettled || !cueBall.visible) {
+      this.cuePivot.visible = false;
+      this.aimDot.visible = false;
+      this.laser.visible = false;
+      return;
+    }
+    
+    this.cuePivot.visible = true;
+    
+    // If cue ball moved, update last position but keep aim point ahead
+    if (!cueBall.position.equals(this.lastCueBallPosition)) {
+      // Calculate the offset between old and new cue ball position
+      const offset = new THREE.Vector3().subVectors(cueBall.position, this.lastCueBallPosition);
+      // Move the aim point by the same offset to maintain relative aiming
+      this.desktopAimPoint.add(offset);
+      this.lastCueBallPosition.copy(cueBall.position);
+    }
+    
+    // Calculate direction from cue ball to aim point
+    const aimDirection = new THREE.Vector3()
+      .subVectors(this.desktopAimPoint, cueBall.position);
+    aimDirection.y = 0; // Keep horizontal
+    
+    // If aim point is too close to cue ball, push it out
+    const minDistance = 0.5;
+    if (aimDirection.length() < minDistance) {
+      aimDirection.normalize().multiplyScalar(minDistance);
+      this.desktopAimPoint.copy(cueBall.position).add(aimDirection);
+    } else {
+      aimDirection.normalize();
+    }
+    
+    // Get power charge for pullback effect (with defensive check)
+    let powerCharge = 0;
+    if (this.game.desktopControls && typeof this.game.desktopControls.getPowerCharge === 'function') {
+      powerCharge = this.game.desktopControls.getPowerCharge();
+    }
+    const pullback = powerCharge * 0.3; // Pull back up to 30cm when charging
+    
+    // FIXED: The cue is 1.4m long (tip to butt)
+    // The tip is at the front (+Z) when we use lookAt
+    // So we need to position the butt 1.4m behind where we want the tip
+    const tipToButtDistance = 1.4;
+    const tipOffset = 0.03; // Keep tip 3cm from ball surface (ball radius is 2.8cm)
+    
+    // Position butt: behind the ball enough so tip ends up at the ball
+    this.cuePivot.position.copy(cueBall.position)
+      .addScaledVector(aimDirection, -(tipToButtDistance + tipOffset + pullback));
+    
+    this.cuePivot.position.y = cueBall.position.y; // Keep at ball height
+    
+    // Point cue toward aim point (this makes +Z point at aim, and tip is along +Z)
+    this.cuePivot.lookAt(this.desktopAimPoint.x, cueBall.position.y, this.desktopAimPoint.z);
+    
+    // Show laser and aim dot
+    this.laser.visible = true;
+    this.aimDot.visible = true;
+    this.aimDot.position.copy(this.desktopAimPoint);
+    this.aimDot.position.y = this.poolTable.tableHeight + 0.001; // Just above table
+  }

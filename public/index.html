@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VR Bowlliards</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; background: #111; color: white; }
+    
+    #info {
+      position: absolute;
+      top: 10px; left: 10px; background: rgba(0,0,0,0.7);
+      padding: 10px; border-radius: 5px; font-size: 14px; z-index: 10; 
+    }
+    
+    #lobby {
+      position: absolute;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0, 20, 40, 0.95); padding: 30px;
+      border: 2px solid #00ff88; border-radius: 15px;
+      text-align: center; z-index: 20; min-width: 320px;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+    }
+    #lobby h2 { margin-top: 0; color: #00ff88; margin-bottom: 5px; }
+    #lobby p { margin-bottom: 20px; color: #ccc; }
+    #lobby input {
+      font-size: 20px; padding: 10px; width: 160px; text-align: center;
+      margin: 10px 0; border-radius: 5px; border: none; background: #fff; color: #000; font-weight: bold;
+    }
+    #lobby button {
+      font-size: 16px; padding: 12px 24px; margin: 8px; width: 220px;
+      color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: transform 0.1s, opacity 0.1s;
+    }
+    #lobby button:active { transform: scale(0.98); }
+    #lobby button:hover { opacity: 0.9; }
+    #joinBtn { background: #0088ff; }
+    #hostBtn { background: #00aa44; }
+    #singlePlayerBtn { background: #ffaa00; color: #331100; margin-top: 10px; border: 2px solid #ffcc00; }
+    
+    .divider { display: flex; align-items: center; text-align: center; color: #666; margin: 15px 0; font-size: 12px; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #444; }
+    .divider:not(:empty)::before { margin-right: .5em; }
+    .divider:not(:empty)::after { margin-left: .5em; }
+    .hidden { display: none !important; }
+    .discord-link { color: #5865F2; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px; }
+    #info input, #info button { font-size: 14px; margin-top: 5px; }
+    #nameSaved { color: #00ff88; font-weight: bold; margin-left: 10px; }
+  </style>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  
+  <div id="lobby">
+    <h2>VR BOWLLIARDS</h2>
+    <p>Select Game Mode</p>
+    <input type="text" id="roomCodeInput" placeholder="ROOM CODE" maxlength="10" style="text-transform:uppercase;">
+    <br>
+    <button id="joinBtn">JOIN GAME</button>
+    <button id="hostBtn">HOST GAME</button>
+    <div class="divider">OR PLAY SOLO</div>
+    <button id="singlePlayerBtn">SINGLE PLAYER</button>
+    <br><br>
+    <small id="statusText" style="color:#888;">Waiting for selection...</small>
+  </div>
+
+  <div id="info">
+    <strong>Player Setup:</strong><br>
+    <label for="playerNameInput">Name: </label>
+    <input type="text" id="playerNameInput" placeholder="Enter name">
+    <button id="saveNameButton">Save</button>
+    <span id="nameSaved" style="display:none;"> Saved!</span>
+    <br>
+    <a href="https://discord.gg/ubzPZkUtcgt" target="_blank" class="discord-link">Join our Discord</a>
+  </div>
+  
+  <script type="module" src="main.js"></script>
+  
+  <script src="https://storage.googleapis.com/rosebud_staticfiles/ChatManager.js"></script>
+  <script src="https://storage.googleapis.com/rosebud_staticfiles/ImageGenerator.js"></script>
+  <script src="https://storage.googleapis.com/rosebud_staticfiles/ProgressLogger.js"></script>
+  <script src="https://storage.googleapis.com/rosebud_staticfiles/OGP.js"></script>
+  
+  <script>
+    window.ROOM_CODE = null; 
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const roomInput = document.getElementById('roomCodeInput');
+      const joinBtn = document.getElementById('joinBtn');
+      const hostBtn = document.getElementById('hostBtn');
+      const singleBtn = document.getElementById('singlePlayerBtn');
+      const statusText = document.getElementById('statusText');
+      const lobbyDiv = document.getElementById('lobby');
+
+      function generateCode() { return Math.random().toString(36).substring(2, 6).toUpperCase(); }
+
+      singleBtn.addEventListener('click', () => {
+        window.ROOM_CODE = null; 
+        statusText.textContent = "Starting Single Player Mode...";
+        statusText.style.color = '#ffaa00';
+        setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 800);
+      });
+
+      hostBtn.addEventListener('click', () => {
+        let code = roomInput.value.trim().toUpperCase();
+        if (code.length === 0) code = generateCode();
+        window.ROOM_CODE = code;
+        statusText.textContent = `Hosting Room: ${code}. Connecting...`;
+        statusText.style.color = '#00ff88';
+        if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
+        setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 1500);
+      });
+
+      joinBtn.addEventListener('click', () => {
+        const code = roomInput.value.trim().toUpperCase();
+        if (code.length > 0) {
+            window.ROOM_CODE = code;
+            statusText.textContent = `Joining Room: ${code}. Connecting...`;
+            statusText.style.color = '#0088ff';
+            if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
+            setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 1500);
+        } else {
+            alert("Please enter a room code to join!");
+        }
+      });
+      
+      const input = document.getElementById('playerNameInput');
+      const button = document.getElementById('saveNameButton');
+      const savedText = document.getElementById('nameSaved');
+      const savedName = localStorage.getItem('bowlliards_playerName');
+      if (savedName) input.value = savedName;
+      
+      button.addEventListener('click', () => {
+        const name = input.value;
+        if (name && name.trim() !== "") {
+          localStorage.setItem('bowlliards_playerName', name.trim());
+          savedText.style.display = 'inline';
+          input.disabled = true;
+          button.disabled = true;
+          setTimeout(() => { savedText.style.display = 'none'; input.disabled = false; button.disabled = false; }, 2000);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
