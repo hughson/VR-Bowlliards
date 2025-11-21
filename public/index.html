@@ -71,7 +71,7 @@
     <div class="divider">OR PLAY SOLO</div>
     <button id="singlePlayerBtn">SINGLE PLAYER</button>
     <br><br>
-    <small id="statusText" style="color:#888;">Waiting for selection...</small>
+    <small id="statusText" style="color:#888;">Waiting for selection.</small>
   </div>
 
   <div id="info">
@@ -93,6 +93,7 @@
   
   <script>
     window.ROOM_CODE = null; 
+        window.IS_HOST = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       const roomInput = document.getElementById('roomCodeInput');
@@ -106,6 +107,7 @@
 
       singleBtn.addEventListener('click', () => {
         window.ROOM_CODE = null; 
+        window.IS_HOST = null;
         statusText.textContent = "Starting Single Player Mode...";
         statusText.style.color = '#ffaa00';
         setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 800);
@@ -115,6 +117,7 @@
         let code = roomInput.value.trim().toUpperCase();
         if (code.length === 0) code = generateCode();
         window.ROOM_CODE = code;
+        window.IS_HOST = true;
         statusText.textContent = `Hosting Room: ${code}. Connecting...`;
         statusText.style.color = '#00ff88';
         if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
@@ -125,6 +128,7 @@
         const code = roomInput.value.trim().toUpperCase();
         if (code.length > 0) {
             window.ROOM_CODE = code;
+            window.IS_HOST = false;
             statusText.textContent = `Joining Room: ${code}. Connecting...`;
             statusText.style.color = '#0088ff';
             if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
@@ -134,6 +138,7 @@
         }
       });
       
+      // PLAYER NAME SAVE
       const input = document.getElementById('playerNameInput');
       const button = document.getElementById('saveNameButton');
       const savedText = document.getElementById('nameSaved');
