@@ -7,7 +7,7 @@ export class NetworkManager {
     this.socket = null;
     this.isConnected = false;
     this.roomCode = null;
-    this.serverUrl = 'https://bowlliards-multiplayer.onrender.com'; 
+    this.serverUrl = 'https://bowlliards-multiplayer.onrender.com';
     
     this.ghostGroup = new THREE.Group();
     this.ghostHead = null;
@@ -77,19 +77,28 @@ export class NetworkManager {
   }
 
   connect() {
-    if (typeof io === 'undefined') return;
+    if (typeof io === 'undefined') {
+        console.warn('[NETWORK] Socket.io not loaded - multiplayer disabled');
+        return;
+    }
 
+    console.log('[NETWORK] Connecting to:', this.serverUrl);
     this.socket = io(this.serverUrl);
 
     this.socket.on('connect', () => {
         this.isConnected = true;
         this.updateStatus(0xffff00); // Yellow
-        console.log("Connected to Server");
+        console.log("[NETWORK] Connected to Server");
+    });
+
+    this.socket.on('connect_error', (error) => {
+        console.error('[NETWORK] Connection error:', error);
+        this.updateStatus(0xff0000); // Red
     });
 
     // --- ROOM JOINED (Assign Player Number) ---
     this.socket.on('roomJoined', (data) => {
-        console.log("Room Joined. Player Number:", data.playerNumber);
+        console.log("[NETWORK] Room Joined. Player Number:", data.playerNumber);
         this.game.myPlayerNumber = data.playerNumber;
         
         // Player 2 waits for Player 1's turn
@@ -104,6 +113,7 @@ export class NetworkManager {
 
     // --- OPPONENT CONNECTED ---
     this.socket.on('playerJoined', (id) => {
+        console.log('[NETWORK] Opponent joined:', id);
         this.updateStatus(0x00ff00); // Green
         this.game.isMultiplayer = true;
         
@@ -155,7 +165,7 @@ export class NetworkManager {
 
     // --- SHOT RECEIVED ---
     this.socket.on('opponentShot', (data) => {
-        console.log("RX: Opponent Shot");
+        console.log("[NETWORK] RX: Opponent Shot");
         this.game.showNotification('Opponent is shooting...', 1500);
         
         const direction = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
@@ -171,7 +181,7 @@ export class NetworkManager {
 
     // --- OPPONENT FRAME COMPLETE ---
     this.socket.on('opponentFrameComplete', (scoresData) => {
-        console.log("RX: Opponent Frame Complete");
+        console.log("[NETWORK] RX: Opponent Frame Complete");
         
         // Import opponent's scores
         if (this.game.remoteRulesEngine && scoresData) {
@@ -220,6 +230,14 @@ export class NetworkManager {
         
         this.game.updateScoreboard();
     });
+
+    // --- DISCONNECT ---
+    this.socket.on('disconnect', () => {
+        console.log('[NETWORK] Disconnected from server');
+        this.isConnected = false;
+        this.updateStatus(0xff0000); // Red
+        this.game.showNotification('Lost connection to server', 3000);
+    });
   }
 
   joinRoom(roomCode) {
@@ -229,11 +247,13 @@ export class NetworkManager {
         return;
     }
     this.roomCode = roomCode;
+    console.log('[NETWORK] Joining room:', roomCode);
     this.socket.emit('joinRoom', roomCode);
   }
   
   handleVRStart() {
     if (!this.isConnected && this.roomCode) {
+        console.log('[NETWORK] Reconnecting on VR start');
         this.connect(); 
         setTimeout(() => this.joinRoom(this.roomCode), 500);
     }
@@ -278,6 +298,7 @@ export class NetworkManager {
 
   sendShot(direction, power, spin) {
     if (!this.isConnected || !this.roomCode) return;
+    console.log('[NETWORK] Sending shot to opponent');
     const shotData = { 
         roomCode: this.roomCode, 
         dir: { x: direction.x, y: direction.y, z: direction.z }, 
@@ -295,6 +316,7 @@ export class NetworkManager {
   // --- SEND FRAME COMPLETE ---
   sendFrameComplete(scoresData) {
     if (!this.isConnected || !this.roomCode) return;
+    console.log('[NETWORK] Sending frame complete');
     this.socket.emit('frameComplete', { 
         roomCode: this.roomCode, 
         scores: scoresData 

@@ -276,14 +276,6 @@ class VRBowlliardsGame {
     this.setupNewFrame(true);
     this.gameState = 'ready'; 
     this.ballInHand.enable(true);
-    
-    // Auto-place ball for desktop mode (VR users will manually place)
-    if (!this.isVR) {
-      setTimeout(() => {
-        this.ballInHand.disable();
-        console.log('[INIT] Auto-placed ball for desktop mode');
-      }, 100);
-    }
   }
 
   setupNewFrame(isBreakShot = false) {
@@ -441,26 +433,20 @@ class VRBowlliardsGame {
     }
   }
 
-  // --- TRIGGER SHOT (with Turn Check) ---
+  // --- TRIGGER SHOT (with Turn Check ONLY in Multiplayer) ---
   takeShot(direction, power, spin = { english: 0, vertical: 0 }) {
-    console.log('[TAKESHOT] Called with:', { 
-        isMultiplayer: this.isMultiplayer, 
-        isMyTurn: this.isMyTurn,
-        gameState: this.gameState,
-        ballsSettled: this.ballsSettled
-    });
-    
-    // TURN CHECK - Block if not your turn in multiplayer
+    // CRITICAL FIX: Only check turn in multiplayer mode
     if (this.isMultiplayer && !this.isMyTurn) {
-        console.log('[TAKESHOT] BLOCKED - Not your turn in multiplayer');
+        console.log('[TURN CHECK] Blocked: isMultiplayer =', this.isMultiplayer, 'isMyTurn =', this.isMyTurn);
         this.showNotification("Wait for opponent to finish their frame!", 2000);
         return;
     }
 
-    console.log('[TAKESHOT] Shot allowed - executing...');
+    console.log('[SHOT] Taking shot - isMultiplayer:', this.isMultiplayer, 'isMyTurn:', this.isMyTurn);
+    
     this.ballInHand.disable(); 
     
-    // Send shot to opponent
+    // Send shot to opponent only in multiplayer
     if (this.networkManager && this.isMultiplayer) {
         this.networkManager.sendShot(direction, power, spin);
     }
@@ -481,6 +467,7 @@ class VRBowlliardsGame {
   
   // --- RECEIVE REMOTE SHOT ---
   executeRemoteShot(direction, power, spin) {
+    console.log('[REMOTE SHOT] Executing opponent shot');
     this.ballInHand.disable();
     
     // Watching opponent
@@ -693,11 +680,6 @@ class VRBowlliardsGame {
       this.setupNewFrame(true);
       this.gameState = 'ready';
       this.ballInHand.enable(true); 
-      
-      // Auto-place ball for desktop mode
-      if (!this.isVR) {
-        setTimeout(() => this.ballInHand.disable(), 100);
-      }
       
       this.showNotification(
         'Frame ' + (this.rulesEngine.currentFrame + 1) + ' Ready',
