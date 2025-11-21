@@ -1,3 +1,4 @@
+// networkManager.js
 import * as THREE from 'three';
 import { BowlliardsRulesEngine } from './scoring.js';
 
@@ -41,10 +42,12 @@ export class NetworkManager {
     const handle = new THREE.Mesh(handleGeo, material);
     handle.position.z = 0.04; 
     group.add(handle);
+
     const headGeo = new THREE.TorusGeometry(0.045, 0.008, 8, 16);
     const head = new THREE.Mesh(headGeo, material);
     head.position.z = -0.05; 
     group.add(head);
+
     return group;
   }
 
@@ -96,12 +99,32 @@ export class NetworkManager {
       this.updateStatus(0xff0000); // Red
     });
 
-    // --- ROOM JOINED (Assign Player Number) ---
+    // --- ROOM JOINED (Assign Player Number, enable multiplayer on THIS client) ---
     this.socket.on('roomJoined', (data) => {
       console.log("[NETWORK] Room Joined. Player Number:", data.playerNumber);
+
+      // Remember room code if server sends it
+      if (data.roomCode) {
+        this.roomCode = data.roomCode;
+      }
+
       this.game.myPlayerNumber = data.playerNumber;
-      
-      // Player 2 waits for Player 1's turn
+
+      // Make sure this client is fully in multiplayer mode
+      if (!this.game.isMultiplayer) {
+        this.game.isMultiplayer = true;
+
+        if (!this.game.remoteRulesEngine) {
+          this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+        }
+
+        if (this.game.scoreboard) {
+          this.game.scoreboard.setupBoard('multi');
+          this.game.updateScoreboard();
+        }
+      }
+
+      // Initial turn ownership
       if (data.playerNumber === 2) {
         this.game.isMyTurn = false;
         this.game.showNotification("You are Player 2. Waiting for Player 1...", 3000);
@@ -109,45 +132,27 @@ export class NetworkManager {
         this.game.isMyTurn = true;
         this.game.showNotification("You are Player 1. Your turn!", 2000);
       }
-
-      // 🔧 IMPORTANT FIX:
-      // As soon as we successfully join a room (host OR joiner),
-      // treat this game instance as multiplayer and set up the
-      // remote rules + double scoreboard. This ensures the
-      // joining player also has:
-      //   - isMultiplayer === true
-      //   - remoteRulesEngine
-      //   - multi scoreboard
-      //   - turn checks + shot sync
-      this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
-      }
-
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-        this.game.scoreboard.setupBoard('multi');
-        this.game.updateScoreboard();
-      }
     });
 
-    // --- OPPONENT CONNECTED ---
+    // --- OPPONENT CONNECTED (seen by the existing player in the room) ---
     this.socket.on('playerJoined', (id) => {
       console.log('[NETWORK] Opponent joined:', id);
       this.updateStatus(0x00ff00); // Green
 
-      // Keep this idempotent – in case we already did this in roomJoined.
-      this.game.isMultiplayer = true;
+      // Ensure multiplayer is fully initialised on this client as well
+      if (!this.game.isMultiplayer) {
+        this.game.isMultiplayer = true;
+      }
 
       if (!this.game.remoteRulesEngine) {
         this.game.remoteRulesEngine = new BowlliardsRulesEngine();
       }
 
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+      if (this.game.scoreboard) {
         this.game.scoreboard.setupBoard('multi');
         this.game.updateScoreboard();
       }
-      
+
       this.game.showNotification('Opponent Connected! Game Starting...', 3000);
     });
     
@@ -165,13 +170,17 @@ export class NetworkManager {
 
       if (data.head && typeof data.head.x === 'number') {
         this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
-        this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
+        this.ghostHead.quaternion.set(
+          data.head.qx, data.head.qy, data.head.qz, data.head.qw
+        );
       }
 
       if (hasHand1) {
         this.ghostHand1.visible = true;
         this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-        this.ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
+        this.ghostHand1.quaternion.set(
+          data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw
+        );
       } else {
         this.ghostHand1.visible = false;
       }
@@ -179,7 +188,9 @@ export class NetworkManager {
       if (hasHand2) {
         this.ghostHand2.visible = true;
         this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-        this.ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
+        this.ghostHand2.quaternion.set(
+          data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw
+        );
       } else {
         this.ghostHand2.visible = false;
       }
@@ -211,7 +222,7 @@ export class NetworkManager {
       this.game.checkGameComplete();
     });
 
-    // --- TURN CHANGE ---
+    // --- TURN CHANGE (optional extra; current logic mostly uses frameComplete) ---
     this.socket.on('turnChanged', (data) => {
       this.game.isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
       
@@ -275,7 +286,9 @@ export class NetworkManager {
       const q = new THREE.Quaternion();
       this.game.controller1.getWorldPosition(p);
       this.game.controller1.getWorldQuaternion(q);
-      if (p.lengthSq() > 0.01) data.hand1 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+      if (p.lengthSq() > 0.01) {
+        data.hand1 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+      }
     }
     
     if (this.game.controller2) {
@@ -283,7 +296,9 @@ export class NetworkManager {
       const q = new THREE.Quaternion();
       this.game.controller2.getWorldPosition(p);
       this.game.controller2.getWorldQuaternion(q);
-      if (p.lengthSq() > 0.01) data.hand2 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.z, qw: q.w };
+      if (p.lengthSq() > 0.01) {
+        data.hand2 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+      }
     }
     
     this.socket.emit('updateAvatar', data);
