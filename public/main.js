@@ -31,8 +31,12 @@ class VRBowlliardsGame {
     this.leftHanded = false;
     this.isVR = false;
     
-    // Multiplayer Authority: Defaults to true (Single Player / Host)
-    this.isAuthority = true;
+    // Multiplayer Turn Management
+    this.isMultiplayer = false;
+    this.isMyTurn = true;  // Start with your turn (Player 1 always goes first)
+    this.myPlayerNumber = 1; // 1 or 2, assigned when joining room
+    this.remoteRulesEngine = null; // Track opponent's score
+    this.isAuthority = true; // Used for physics sync
     
     // Logical controller references
     this.leftHandController = null;
@@ -81,7 +85,6 @@ class VRBowlliardsGame {
       this.locomotion.dolly.rotation.set(0, -Math.PI / 2, 0); 
       if (this.desktopControls) this.desktopControls.setVREnabled(true);
       
-      // Re-verify network on VR entry to keep connection alive
       if (this.networkManager) {
           this.networkManager.handleVRStart();
       }
@@ -177,23 +180,17 @@ class VRBowlliardsGame {
     this.locomotion.dolly.add(this.controller1);
     this.locomotion.dolly.add(this.controller2);
 
-    // Visual Lines for controllers
     const geometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -0.1)
     ]);
     const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-    // We don't attach lines visually here to keep it clean, but logic remains
 
-    // Dynamic Input Handling based on Handedness
     const onSelectStart = (controller) => {
       const strokeController = this.getStrokeController();
-      // Bridge Hand locks the aim
       if (controller !== strokeController) {
          this.onLockStrokeStart();
-      } 
-      // Stroke Hand interacts with UI
-      else {
+      } else {
          if (this.settingsPanel) {
             this.settingsPanel.onSelectStart(controller);
          }
@@ -202,7 +199,6 @@ class VRBowlliardsGame {
 
     const onSelectEnd = (controller) => {
       const strokeController = this.getStrokeController();
-      // Unlock if Bridge Hand releases trigger
       if (controller !== strokeController) {
          this.onLockStrokeEnd();
       }
@@ -292,11 +288,11 @@ class VRBowlliardsGame {
       setTimeout(() => {
         this.ballsSettled = true;
         this.gameState = 'ready';
-        this.scoreboard.updateScore(this.rulesEngine);
+        this.updateScoreboard();
       }, 800);
     } else {
       this.ballsSettled = true;
-      this.scoreboard.updateScore(this.rulesEngine);
+      this.updateScoreboard();
     }
   }
 
@@ -437,15 +433,18 @@ class VRBowlliardsGame {
     }
   }
 
-  // --- TRIGGER SHOT (Local & Network) ---
+  // --- TRIGGER SHOT (with Turn Check) ---
   takeShot(direction, power, spin = { english: 0, vertical: 0 }) {
+    // TURN CHECK - Block if not your turn in multiplayer
+    if (this.isMultiplayer && !this.isMyTurn) {
+        this.showNotification("Wait for opponent to finish their frame!", 2000);
+        return;
+    }
+
     this.ballInHand.disable(); 
     
-    // 1. I am Authority
-    this.isAuthority = true;
-
-    // 2. Send shot to opponent
-    if (this.networkManager) {
+    // Send shot to opponent
+    if (this.networkManager && this.isMultiplayer) {
         this.networkManager.sendShot(direction, power, spin);
     }
 
@@ -458,13 +457,16 @@ class VRBowlliardsGame {
       this.breakShotTaken = true;
       this.frameJustStarted = false;
     }
+    
+    // Set authority for physics sync
+    this.isAuthority = true;
   }
   
   // --- RECEIVE REMOTE SHOT ---
   executeRemoteShot(direction, power, spin) {
     this.ballInHand.disable();
     
-    // 1. I am Watching
+    // Watching opponent
     this.isAuthority = false;
     
     const wasBreak = this.rulesEngine.isBreakShot();
@@ -496,7 +498,7 @@ class VRBowlliardsGame {
         this.celebrationSystem.celebrateStrike();
         this.showNotification('STRIKE!', 2500);
         await this.advanceFrame();
-        this.scoreboard.updateScore(this.rulesEngine);
+        this.updateScoreboard();
         this.poolTable.resetShotTracking();
         return;
       }
@@ -508,7 +510,7 @@ class VRBowlliardsGame {
         this.ballInHand.enable(true); 
         if (this.desktopControls) this.desktopControls.orbitControls.enabled = false;
         
-        this.scoreboard.updateScore(this.rulesEngine);
+        this.updateScoreboard();
         this.poolTable.resetShotTracking();
         return; 
       } 
@@ -520,7 +522,7 @@ class VRBowlliardsGame {
       }
       
       this.gameState = 'ready';
-      this.scoreboard.updateScore(this.rulesEngine);
+      this.updateScoreboard();
       this.poolTable.resetShotTracking();
       return;
     }
@@ -531,7 +533,7 @@ class VRBowlliardsGame {
       if (pocketedBalls.length > 0) this.poolTable.spotBalls(pocketedBalls);
 
       const foulResult = this.rulesEngine.processFoul();
-      this.scoreboard.updateScore(this.rulesEngine);
+      this.updateScoreboard();
 
       if (foulResult.inningComplete && foulResult.isTenthFrame) {
          this.showNotification('Foul, game over!', 2000);
@@ -565,7 +567,7 @@ class VRBowlliardsGame {
     if (!cueBallHitObject) {
         this.showNotification('Foul! Play from where it lies.', 2000);
         const foulResult = this.rulesEngine.processFoul();
-        this.scoreboard.updateScore(this.rulesEngine);
+        this.updateScoreboard();
         
         if (foulResult.inningComplete) {
              if (foulResult.isTenthFrame) this.showNotification('Game Over!', 2000);
@@ -627,7 +629,7 @@ class VRBowlliardsGame {
     }
 
     this.poolTable.resetShotTracking();
-    this.scoreboard.updateScore(this.rulesEngine);
+    this.updateScoreboard();
 
     if (this.gameState === 'shooting') {
       setTimeout(() => {
@@ -640,6 +642,22 @@ class VRBowlliardsGame {
   async advanceFrame() {
     if (this.rulesEngine.isGameComplete()) {
       const finalScore = this.rulesEngine.getTotalScore();
+      
+      // MULTIPLAYER: Pass turn to opponent
+      if (this.isMultiplayer) {
+          this.isMyTurn = false;
+          this.showNotification(`Your Frame Complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
+          
+          // Send frame complete to network
+          if (this.networkManager) {
+              this.networkManager.sendFrameComplete(this.rulesEngine.exportScores());
+          }
+          
+          this.updateScoreboard();
+          return; // Don't end game until both players finish
+      }
+      
+      // SINGLE PLAYER: Game Over
       this.gameState = 'gameOver';
       this.showNotification(`Game Over! Score: ${finalScore}. Press RESET button to play again.`, 10000);
       
@@ -650,7 +668,7 @@ class VRBowlliardsGame {
 
       await this.leaderboard.addScore(finalScore, playerName);
       
-      this.scoreboard.updateScore(this.rulesEngine);
+      this.updateScoreboard();
       this.leaderboardDisplay.update(this.leaderboard);
 
     } else {
@@ -693,6 +711,21 @@ class VRBowlliardsGame {
 
   resetGame() {
     this.startNewGame();
+  }
+
+  // --- HELPER: Update Scoreboard (Single or Multi) ---
+  updateScoreboard() {
+      if (this.isMultiplayer && this.scoreboard.mode === 'multi') {
+          this.scoreboard.update(
+              this.rulesEngine,
+              this.remoteRulesEngine,
+              "YOU",
+              "OPPONENT",
+              this.isMyTurn
+          );
+      } else {
+          this.scoreboard.updateScore(this.rulesEngine);
+      }
   }
 
   showNotification(message, duration) {

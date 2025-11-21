@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BowlliardsRulesEngine } from './scoring.js';
 
 export class NetworkManager {
   constructor(game) {
@@ -6,7 +7,7 @@ export class NetworkManager {
     this.socket = null;
     this.isConnected = false;
     this.roomCode = null;
-    this.serverUrl = 'http://localhost:3000'; 
+    this.serverUrl = 'https://bowlliards-multiplayer.onrender.com'; 
     
     this.ghostGroup = new THREE.Group();
     this.ghostHead = null;
@@ -20,7 +21,6 @@ export class NetworkManager {
   }
 
   initStatusIndicator() {
-    // Status Light: Red=Offline, Yellow=Connected, Green=Online
     const geo = new THREE.SphereGeometry(0.05, 16, 16);
     const mat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); 
     this.statusMesh = new THREE.Mesh(geo, mat);
@@ -36,13 +36,11 @@ export class NetworkManager {
 
   createGhostController(material) {
     const group = new THREE.Group();
-    // Handle
     const handleGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.15, 12);
     handleGeo.rotateX(-Math.PI / 2); 
     const handle = new THREE.Mesh(handleGeo, material);
     handle.position.z = 0.04; 
     group.add(handle);
-    // Ring
     const headGeo = new THREE.TorusGeometry(0.045, 0.008, 8, 16);
     const head = new THREE.Mesh(headGeo, material);
     head.position.z = -0.05; 
@@ -51,20 +49,17 @@ export class NetworkManager {
   }
 
   initGhost() {
-    // Solid Blue Material (High Visibility)
     const ghostMat = new THREE.MeshBasicMaterial({ 
         color: 0x0088ff, 
         side: THREE.DoubleSide,
-        depthTest: false // Always visible through walls
+        depthTest: false
     });
 
-    // 1. Head (Backup for Desktop)
     const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
     this.ghostHead = new THREE.Mesh(headGeo, ghostMat);
     this.ghostHead.renderOrder = 999;
     this.ghostGroup.add(this.ghostHead);
     
-    // 2. Hands (Primary for VR)
     this.ghostHand1 = this.createGhostController(ghostMat);
     this.ghostHand1.renderOrder = 999;
     this.ghostGroup.add(this.ghostHand1);
@@ -73,7 +68,6 @@ export class NetworkManager {
     this.ghostHand2.renderOrder = 999;
     this.ghostGroup.add(this.ghostHand2);
     
-    // Start Hidden
     this.ghostGroup.visible = false;
     this.ghostHead.visible = false;
     this.ghostHand1.visible = false;
@@ -93,9 +87,36 @@ export class NetworkManager {
         console.log("Connected to Server");
     });
 
+    // --- ROOM JOINED (Assign Player Number) ---
+    this.socket.on('roomJoined', (data) => {
+        console.log("Room Joined. Player Number:", data.playerNumber);
+        this.game.myPlayerNumber = data.playerNumber;
+        
+        // Player 2 waits for Player 1's turn
+        if (data.playerNumber === 2) {
+            this.game.isMyTurn = false;
+            this.game.showNotification("You are Player 2. Waiting for Player 1...", 3000);
+        } else {
+            this.game.isMyTurn = true;
+            this.game.showNotification("You are Player 1. Your turn!", 2000);
+        }
+    });
+
+    // --- OPPONENT CONNECTED ---
     this.socket.on('playerJoined', (id) => {
         this.updateStatus(0x00ff00); // Green
-        this.game.showNotification('Opponent Connected!', 3000);
+        this.game.isMultiplayer = true;
+        
+        // Initialize remote rules engine
+        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+        
+        // Switch to multiplayer scoreboard
+        if (this.game.scoreboard) {
+            this.game.scoreboard.setupBoard('multi');
+            this.game.updateScoreboard();
+        }
+        
+        this.game.showNotification('Opponent Connected! Game Starting...', 3000);
     });
     
     // --- AVATAR UPDATE ---
@@ -108,16 +129,13 @@ export class NetworkManager {
         const hasHand2 = !!data.hand2;
         const isVR = hasHand1 || hasHand2;
 
-        // Logic: If VR, hide Head. If Desktop, show Head.
         this.ghostHead.visible = !isVR;
 
-        // Update Head
         if (data.head && typeof data.head.x === 'number') {
             this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
             this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
         }
 
-        // Update Hand 1
         if (hasHand1) {
             this.ghostHand1.visible = true;
             this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
@@ -126,7 +144,6 @@ export class NetworkManager {
             this.ghostHand1.visible = false;
         }
 
-        // Update Hand 2
         if (hasHand2) {
             this.ghostHand2.visible = true;
             this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
@@ -139,7 +156,7 @@ export class NetworkManager {
     // --- SHOT RECEIVED ---
     this.socket.on('opponentShot', (data) => {
         console.log("RX: Opponent Shot");
-        this.game.showNotification('INCOMING SHOT!', 2000);
+        this.game.showNotification('Opponent is shooting...', 1500);
         
         const direction = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
         this.game.executeRemoteShot(direction, data.power, data.spin);
@@ -147,10 +164,61 @@ export class NetworkManager {
 
     // --- PHYSICS SYNC ---
     this.socket.on('tableStateUpdate', (data) => {
-        // Only update if we are NOT the authority (we are watching)
         if (!this.game.isAuthority) {
             this.game.poolTable.importState(data.balls);
         }
+    });
+
+    // --- OPPONENT FRAME COMPLETE ---
+    this.socket.on('opponentFrameComplete', (scoresData) => {
+        console.log("RX: Opponent Frame Complete");
+        
+        // Import opponent's scores
+        if (this.game.remoteRulesEngine && scoresData) {
+            this.game.remoteRulesEngine.importScores(scoresData);
+        }
+        
+        // Check if opponent finished all 10 frames
+        if (this.game.remoteRulesEngine && this.game.remoteRulesEngine.isGameComplete()) {
+            const opponentScore = this.game.remoteRulesEngine.getTotalScore();
+            this.game.showNotification(`Opponent finished! Score: ${opponentScore}`, 3000);
+            
+            // If both players are done, determine winner
+            if (this.game.rulesEngine.isGameComplete()) {
+                const myScore = this.game.rulesEngine.getTotalScore();
+                if (myScore > opponentScore) {
+                    this.game.showNotification(`YOU WIN! ${myScore} vs ${opponentScore}`, 5000);
+                } else if (opponentScore > myScore) {
+                    this.game.showNotification(`YOU LOSE! ${myScore} vs ${opponentScore}`, 5000);
+                } else {
+                    this.game.showNotification(`TIE GAME! ${myScore} vs ${opponentScore}`, 5000);
+                }
+            }
+        } else {
+            // Opponent still playing, it's your turn now
+            this.game.isMyTurn = true;
+            this.game.showNotification("Your turn! Start your next frame.", 2500);
+            
+            // Reset table for your turn
+            this.game.setupNewFrame(true);
+            this.game.gameState = 'ready';
+            this.game.ballInHand.enable(true);
+        }
+        
+        this.game.updateScoreboard();
+    });
+
+    // --- TURN CHANGE ---
+    this.socket.on('turnChanged', (data) => {
+        this.game.isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
+        
+        if (this.game.isMyTurn) {
+            this.game.showNotification("Your Turn!", 2000);
+        } else {
+            this.game.showNotification("Opponent's Turn", 2000);
+        }
+        
+        this.game.updateScoreboard();
     });
   }
 
@@ -208,7 +276,6 @@ export class NetworkManager {
     this.socket.emit('updateAvatar', data);
   }
 
-  // --- SEND SHOT COMMAND ---
   sendShot(direction, power, spin) {
     if (!this.isConnected || !this.roomCode) return;
     const shotData = { 
@@ -220,9 +287,17 @@ export class NetworkManager {
     this.socket.emit('takeShot', shotData);
   }
 
-  // --- SEND PHYSICS SYNC ---
   sendTableState(ballsData) {
     if (!this.isConnected || !this.roomCode) return;
     this.socket.emit('tableStateUpdate', { roomCode: this.roomCode, balls: ballsData });
+  }
+
+  // --- SEND FRAME COMPLETE ---
+  sendFrameComplete(scoresData) {
+    if (!this.isConnected || !this.roomCode) return;
+    this.socket.emit('frameComplete', { 
+        roomCode: this.roomCode, 
+        scores: scoresData 
+    });
   }
 }
