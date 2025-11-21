@@ -167,18 +167,30 @@ export class DesktopControls {
       case 'KeyA': case 'KeyD': this.moveState.right = 0; break;
         
       case 'Space':
+        console.log('[DESKTOP] Space pressed. State:', { 
+            charging: this.charging, 
+            gameState: this.game.gameState, 
+            ballsSettled: this.game.ballsSettled 
+        });
         if (this.charging && this.game.gameState === 'ready' && this.game.ballsSettled) {
+          console.log('[DESKTOP] Conditions met - calling takeShot');
           this.takeShot();
           this.charging = false;
           this.power = 0;
+        } else {
+          console.log('[DESKTOP] Conditions NOT met - shot blocked');
         }
         break;
     }
   }
 
   takeShot() {
+    console.log('[DESKTOP] takeShot() called');
     const cueBall = this.game.poolTable.getCueBall();
-    if (!cueBall) return;
+    if (!cueBall) {
+      console.log('[DESKTOP] No cue ball found!');
+      return;
+    }
 
     const direction = new THREE.Vector3()
       .subVectors(this.aimPoint, cueBall.position)
@@ -186,6 +198,7 @@ export class DesktopControls {
     
     const shotPower = Math.min(this.power, this.maxPower);
     
+    console.log('[DESKTOP] Calling game.takeShot with power:', shotPower);
     this.game.takeShot(direction, shotPower);
   }
   

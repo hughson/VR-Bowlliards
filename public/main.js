@@ -276,6 +276,14 @@ class VRBowlliardsGame {
     this.setupNewFrame(true);
     this.gameState = 'ready'; 
     this.ballInHand.enable(true);
+    
+    // Auto-place ball for desktop mode (VR users will manually place)
+    if (!this.isVR) {
+      setTimeout(() => {
+        this.ballInHand.disable();
+        console.log('[INIT] Auto-placed ball for desktop mode');
+      }, 100);
+    }
   }
 
   setupNewFrame(isBreakShot = false) {
@@ -435,12 +443,21 @@ class VRBowlliardsGame {
 
   // --- TRIGGER SHOT (with Turn Check) ---
   takeShot(direction, power, spin = { english: 0, vertical: 0 }) {
+    console.log('[TAKESHOT] Called with:', { 
+        isMultiplayer: this.isMultiplayer, 
+        isMyTurn: this.isMyTurn,
+        gameState: this.gameState,
+        ballsSettled: this.ballsSettled
+    });
+    
     // TURN CHECK - Block if not your turn in multiplayer
     if (this.isMultiplayer && !this.isMyTurn) {
+        console.log('[TAKESHOT] BLOCKED - Not your turn in multiplayer');
         this.showNotification("Wait for opponent to finish their frame!", 2000);
         return;
     }
 
+    console.log('[TAKESHOT] Shot allowed - executing...');
     this.ballInHand.disable(); 
     
     // Send shot to opponent
@@ -676,6 +693,11 @@ class VRBowlliardsGame {
       this.setupNewFrame(true);
       this.gameState = 'ready';
       this.ballInHand.enable(true); 
+      
+      // Auto-place ball for desktop mode
+      if (!this.isVR) {
+        setTimeout(() => this.ballInHand.disable(), 100);
+      }
       
       this.showNotification(
         'Frame ' + (this.rulesEngine.currentFrame + 1) + ' Ready',
