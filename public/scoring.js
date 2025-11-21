@@ -293,4 +293,42 @@ export class BowlliardsRulesEngine {
       }
     }
   }
+
+  exportScores() {
+    return {
+      frames: this.frames.map(f => ({
+        inning1: {...f.inning1},
+        inning2: {...f.inning2},
+        bonus: f.bonus ? [...f.bonus] : [],
+        score: f.score,
+        isStrike: f.isStrike,
+        isSpare: f.isSpare,
+        isOpen: f.isOpen
+      })),
+      currentFrame: this.currentFrame,
+      currentInning: this.currentInning,
+      breakProcessed: this.breakProcessed,
+      bonusRolls: this.bonusRolls
+    };
+  }
+
+  importScores(data) {
+    if (!data || !data.frames) return;
+    this.frames = data.frames.map(f => ({
+      inning1: {...f.inning1},
+      inning2: {...f.inning2},
+      bonus: f.bonus ? [...f.bonus] : [],
+      score: f.score,
+      isStrike: f.isStrike,
+      isSpare: f.isSpare,
+      isOpen: f.isOpen
+    }));
+    this.currentFrame = data.currentFrame;
+    this.currentInning = data.currentInning;
+    this.breakProcessed = data.breakProcessed;
+    if (data.bonusRolls !== undefined) {
+      this.bonusRolls = data.bonusRolls;
+    }
+    this.calculateScores();
+  }
 }

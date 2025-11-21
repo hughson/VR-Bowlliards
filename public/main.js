@@ -33,10 +33,12 @@ class VRBowlliardsGame {
     
     // Multiplayer Turn Management
     this.isMultiplayer = false;
-    this.isMyTurn = true;  // Start with your turn (Player 1 always goes first)
-    this.myPlayerNumber = 1; // 1 or 2, assigned when joining room
-    this.remoteRulesEngine = null; // Track opponent's score
-    this.isAuthority = true; // Used for physics sync
+    this.isMyTurn = true;  // Start with your turn
+    this.myPlayerNumber = 1; // 1 or 2
+    this.myPlayerName = "Player";
+    this.remotePlayerName = "Opponent";
+    this.remoteRulesEngine = null;
+    this.isAuthority = true;
     
     // Logical controller references
     this.leftHandController = null;
@@ -229,6 +231,12 @@ class VRBowlliardsGame {
 
     this.poolTable = new PoolTable(this.scene, this.physics, this.soundManager);
     this.celebrationSystem = new CelebrationSystem(this.scene, this.camera, this.poolTable);
+    
+    // Get player name
+    this.myPlayerName = localStorage.getItem('bowlliards_playerName') || "Player";
+    if (!this.myPlayerName || this.myPlayerName.trim() === "") {
+      this.myPlayerName = "Player";
+    }
     
     // --- Network Manager Init ---
     this.networkManager = new NetworkManager(this);
@@ -433,20 +441,23 @@ class VRBowlliardsGame {
     }
   }
 
-  // --- TRIGGER SHOT (with Turn Check ONLY in Multiplayer) ---
+  // --- TRIGGER SHOT (with Turn Check) ---
   takeShot(direction, power, spin = { english: 0, vertical: 0 }) {
-    // CRITICAL FIX: Only check turn in multiplayer mode
+    // STRICT TURN CHECK
     if (this.isMultiplayer && !this.isMyTurn) {
-        console.log('[TURN CHECK] Blocked: isMultiplayer =', this.isMultiplayer, 'isMyTurn =', this.isMyTurn);
-        this.showNotification("Wait for opponent to finish their frame!", 2000);
+        console.log('[TURN CHECK] BLOCKED - Not your turn!');
+        this.showNotification("Not your turn! Wait for opponent to finish.", 2500);
         return;
     }
 
-    console.log('[SHOT] Taking shot - isMultiplayer:', this.isMultiplayer, 'isMyTurn:', this.isMyTurn);
+    console.log('[SHOT] Taking shot - Player:', this.myPlayerName, 'Frame:', this.rulesEngine.currentFrame + 1);
     
     this.ballInHand.disable(); 
     
-    // Send shot to opponent only in multiplayer
+    // I am now the authority for this shot
+    this.isAuthority = true;
+    
+    // Send shot to opponent
     if (this.networkManager && this.isMultiplayer) {
         this.networkManager.sendShot(direction, power, spin);
     }
@@ -460,17 +471,14 @@ class VRBowlliardsGame {
       this.breakShotTaken = true;
       this.frameJustStarted = false;
     }
-    
-    // Set authority for physics sync
-    this.isAuthority = true;
   }
   
   // --- RECEIVE REMOTE SHOT ---
   executeRemoteShot(direction, power, spin) {
-    console.log('[REMOTE SHOT] Executing opponent shot');
+    console.log('[REMOTE SHOT] Receiving opponent shot');
     this.ballInHand.disable();
     
-    // Watching opponent
+    // Opponent is authority, I'm watching
     this.isAuthority = false;
     
     const wasBreak = this.rulesEngine.isBreakShot();
@@ -606,7 +614,7 @@ class VRBowlliardsGame {
         this.setupNewFrame();
         this.gameState = 'ready';
       } else {
-        this.showNotification('Game Over!', 2000);
+        this.showNotification('Frame Complete!', 2000);
         await this.advanceFrame();
       }
     } else {
@@ -644,24 +652,28 @@ class VRBowlliardsGame {
   }
 
   async advanceFrame() {
+    // MULTIPLAYER: Switch turns after EACH frame
+    if (this.isMultiplayer) {
+        // My frame is complete
+        this.isMyTurn = false;
+        
+        // Send my scores to opponent
+        if (this.networkManager) {
+            this.networkManager.sendFrameComplete(this.rulesEngine.exportScores());
+        }
+        
+        const frameNum = this.rulesEngine.currentFrame + 1;
+        this.showNotification(`Frame ${frameNum} Complete! Opponent's turn...`, 3000);
+        
+        // Don't advance my frame yet - wait for opponent
+        this.updateScoreboard();
+        this.gameState = 'waiting';
+        return;
+    }
+    
+    // SINGLE PLAYER: Continue as normal
     if (this.rulesEngine.isGameComplete()) {
       const finalScore = this.rulesEngine.getTotalScore();
-      
-      // MULTIPLAYER: Pass turn to opponent
-      if (this.isMultiplayer) {
-          this.isMyTurn = false;
-          this.showNotification(`Your Frame Complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
-          
-          // Send frame complete to network
-          if (this.networkManager) {
-              this.networkManager.sendFrameComplete(this.rulesEngine.exportScores());
-          }
-          
-          this.updateScoreboard();
-          return; // Don't end game until both players finish
-      }
-      
-      // SINGLE PLAYER: Game Over
       this.gameState = 'gameOver';
       this.showNotification(`Game Over! Score: ${finalScore}. Press RESET button to play again.`, 10000);
       
@@ -686,6 +698,52 @@ class VRBowlliardsGame {
         2000
       );
     }
+  }
+  
+  // Called when opponent finishes their frame
+  onOpponentFrameComplete() {
+      console.log('[OPPONENT] Frame complete, my turn now');
+      
+      // Now it's my turn
+      this.isMyTurn = true;
+      
+      // Advance my frame
+      if (!this.rulesEngine.isGameComplete()) {
+          this.rulesEngine.nextFrame();
+          this.setupNewFrame(true);
+          this.gameState = 'ready';
+          this.ballInHand.enable(true);
+          
+          const frameNum = this.rulesEngine.currentFrame + 1;
+          this.showNotification(`Your turn! Frame ${frameNum}`, 2500);
+      } else {
+          // I'm done with all 10 frames, check winner
+          this.checkGameComplete();
+      }
+      
+      this.updateScoreboard();
+  }
+  
+  checkGameComplete() {
+      if (!this.isMultiplayer) return;
+      
+      const myComplete = this.rulesEngine.isGameComplete();
+      const oppComplete = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
+      
+      if (myComplete && oppComplete) {
+          const myScore = this.rulesEngine.getTotalScore();
+          const oppScore = this.remoteRulesEngine.getTotalScore();
+          
+          if (myScore > oppScore) {
+              this.showNotification(`YOU WIN! ${myScore} vs ${oppScore}`, 5000);
+          } else if (oppScore > myScore) {
+              this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore}`, 5000);
+          } else {
+              this.showNotification(`TIE GAME! ${myScore} vs ${oppScore}`, 5000);
+          }
+          
+          this.gameState = 'gameOver';
+      }
   }
 
   async startNewGame() {
@@ -723,12 +781,11 @@ class VRBowlliardsGame {
           this.scoreboard.update(
               this.rulesEngine,
               this.remoteRulesEngine,
-              "YOU",
-              "OPPONENT",
+              this.myPlayerName,
+              this.remotePlayerName,
               this.isMyTurn
           );
       } else {
-          // Single player - just pass rules engine, rest null
           this.scoreboard.update(this.rulesEngine, null, null, null, null);
       }
   }
@@ -784,7 +841,8 @@ class VRBowlliardsGame {
     if (this.networkManager) {
         this.networkManager.sendAvatarUpdate();
         
-        if (this.isAuthority && !this.ballsSettled) {
+        // Send physics state when I'm the authority
+        if (this.isAuthority && !this.ballsSettled && this.gameState === 'shooting') {
              const state = this.poolTable.exportState();
              this.networkManager.sendTableState(state);
         }

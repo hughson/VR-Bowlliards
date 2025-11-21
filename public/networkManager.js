@@ -181,41 +181,12 @@ export class NetworkManager {
 
     // --- OPPONENT FRAME COMPLETE ---
     this.socket.on('opponentFrameComplete', (scoresData) => {
-        console.log("[NETWORK] RX: Opponent Frame Complete");
-        
-        // Import opponent's scores
+        console.log("[NETWORK] Opponent frame complete");
         if (this.game.remoteRulesEngine && scoresData) {
             this.game.remoteRulesEngine.importScores(scoresData);
         }
-        
-        // Check if opponent finished all 10 frames
-        if (this.game.remoteRulesEngine && this.game.remoteRulesEngine.isGameComplete()) {
-            const opponentScore = this.game.remoteRulesEngine.getTotalScore();
-            this.game.showNotification(`Opponent finished! Score: ${opponentScore}`, 3000);
-            
-            // If both players are done, determine winner
-            if (this.game.rulesEngine.isGameComplete()) {
-                const myScore = this.game.rulesEngine.getTotalScore();
-                if (myScore > opponentScore) {
-                    this.game.showNotification(`YOU WIN! ${myScore} vs ${opponentScore}`, 5000);
-                } else if (opponentScore > myScore) {
-                    this.game.showNotification(`YOU LOSE! ${myScore} vs ${opponentScore}`, 5000);
-                } else {
-                    this.game.showNotification(`TIE GAME! ${myScore} vs ${opponentScore}`, 5000);
-                }
-            }
-        } else {
-            // Opponent still playing, it's your turn now
-            this.game.isMyTurn = true;
-            this.game.showNotification("Your turn! Start your next frame.", 2500);
-            
-            // Reset table for your turn
-            this.game.setupNewFrame(true);
-            this.game.gameState = 'ready';
-            this.game.ballInHand.enable(true);
-        }
-        
-        this.game.updateScoreboard();
+        this.game.onOpponentFrameComplete();
+        this.game.checkGameComplete();
     });
 
     // --- TURN CHANGE ---
