@@ -728,7 +728,8 @@ class VRBowlliardsGame {
               this.isMyTurn
           );
       } else {
-          this.scoreboard.updateScore(this.rulesEngine);
+          // Single player - just pass rules engine, rest null
+          this.scoreboard.update(this.rulesEngine, null, null, null, null);
       }
   }
 
