@@ -33,6 +33,20 @@ io.on('connection', (socket) => {
   });
   // --------------------------------
 
+  // --- NEW: Frame Complete (Turn Switching) ---
+  socket.on('frameComplete', (data) => {
+    console.log(`*** FRAME COMPLETE in Room ${data.roomCode} ***`);
+    socket.to(data.roomCode).emit('opponentFrameComplete', data.scores);
+  });
+  // -------------------------------------------
+
+  // --- NEW: Score Update (After Each Inning) ---
+  socket.on('scoreUpdate', (data) => {
+    console.log(`*** SCORE UPDATE in Room ${data.roomCode} ***`);
+    socket.to(data.roomCode).emit('opponentScoreUpdate', data.scores);
+  });
+  // ---------------------------------------------
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });

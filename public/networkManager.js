@@ -14,235 +14,194 @@ export class NetworkManager {
     this.ghostHand1 = null;
     this.ghostHand2 = null;
     
-    this.statusMesh = null; 
-    
     this.initGhost();
-    this.initStatusIndicator();
-  }
-
-  initStatusIndicator() {
-    const geo = new THREE.SphereGeometry(0.05, 16, 16);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); 
-    this.statusMesh = new THREE.Mesh(geo, mat);
-    this.statusMesh.position.set(0, 1.5, -1.5); 
-    this.game.scene.add(this.statusMesh);
-  }
-
-  updateStatus(colorHex) {
-    if (this.statusMesh) {
-        this.statusMesh.material.color.setHex(colorHex);
-    }
-  }
-
-  createGhostController(material) {
-    const group = new THREE.Group();
-    const handleGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.15, 12);
-    handleGeo.rotateX(-Math.PI / 2); 
-    const handle = new THREE.Mesh(handleGeo, material);
-    handle.position.z = 0.04; 
-    group.add(handle);
-    const headGeo = new THREE.TorusGeometry(0.045, 0.008, 8, 16);
-    const head = new THREE.Mesh(headGeo, material);
-    head.position.z = -0.05; 
-    group.add(head);
-    return group;
   }
 
   initGhost() {
-    const ghostMat = new THREE.MeshBasicMaterial({ 
-        color: 0x0088ff, 
-        side: THREE.DoubleSide,
-        depthTest: false
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.4
     });
 
     const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
-    this.ghostHead = new THREE.Mesh(headGeo, ghostMat);
-    this.ghostHead.renderOrder = 999;
+    this.ghostHead = new THREE.Mesh(headGeo, material);
     this.ghostGroup.add(this.ghostHead);
-    
-    this.ghostHand1 = this.createGhostController(ghostMat);
-    this.ghostHand1.renderOrder = 999;
+
+    const handGeo = new THREE.BoxGeometry(0.05, 0.08, 0.12);
+    this.ghostHand1 = new THREE.Mesh(handGeo, material);
+    this.ghostHand2 = new THREE.Mesh(handGeo, material);
     this.ghostGroup.add(this.ghostHand1);
-    
-    this.ghostHand2 = this.createGhostController(ghostMat);
-    this.ghostHand2.renderOrder = 999;
     this.ghostGroup.add(this.ghostHand2);
-    
+
     this.ghostGroup.visible = false;
-    this.ghostHead.visible = false;
-    this.ghostHand1.visible = false;
-    this.ghostHand2.visible = false;
-    
     this.game.scene.add(this.ghostGroup);
   }
 
   connect() {
     if (typeof io === 'undefined') {
-        console.warn('[NETWORK] Socket.io not loaded - multiplayer disabled');
-        return;
+      console.warn('[NETWORK] Socket.io not loaded - multiplayer disabled');
+      return;
     }
 
     console.log('[NETWORK] Connecting to:', this.serverUrl);
     this.socket = io(this.serverUrl);
 
-    // DEBUG: log every event we get from the server
-    this.socket.onAny((event, ...args) => {
-        console.log('[NETWORK][onAny]', event, args[0]);
-    });
-
     this.socket.on('connect', () => {
-        this.isConnected = true;
-        this.updateStatus(0xffff00); // Yellow
-        console.log("[NETWORK] Connected to Server");
+      this.isConnected = true;
+      console.log('[NETWORK] Connected to Server');
     });
 
-    this.socket.on('connect_error', (error) => {
-        console.error('[NETWORK] Connection error:', error);
-        this.updateStatus(0xff0000); // Red
+    this.socket.on('connect_error', (err) => {
+      console.error('[NETWORK] Connection error:', err);
     });
 
-    // --- ROOM JOINED (Assign Player Number) ---
+    // Server says: you joined a room, here's your player number
     this.socket.on('roomJoined', (data) => {
-        console.log("[NETWORK] Room Joined. Player Number:", data.playerNumber);
-        this.game.myPlayerNumber = data.playerNumber;
-        
-        // Player 2 waits for Player 1's turn
-        if (data.playerNumber === 2) {
-            this.game.isMyTurn = false;
-            this.game.showNotification("You are Player 2. Waiting for Player 1...", 3000);
-        } else {
-            this.game.isMyTurn = true;
-            this.game.showNotification("You are Player 1. Your turn!", 2000);
-        }
+      console.log('[NETWORK] Room Joined. Player Number:', data.playerNumber);
+      this.game.myPlayerNumber = data.playerNumber;
 
-        console.log("[NETWORK] roomJoined -> myPlayerNumber =", this.game.myPlayerNumber, "isMyTurn =", this.game.isMyTurn);
+      if (data.playerNumber === 2) {
+        this.game.isMyTurn = false;
+        this.game.showNotification('You are Player 2. Waiting for Player 1...', 3000);
+      } else {
+        this.game.isMyTurn = true;
+        this.game.showNotification('You are Player 1. Your turn!', 2000);
+      }
+
+      this.game.updateScoreboard();
     });
 
-    // --- OPPONENT CONNECTED ---
+    // Host gets notified when the second player joins
     this.socket.on('playerJoined', (id) => {
-        console.log('[NETWORK] Opponent joined:', id);
-        this.updateStatus(0x00ff00); // Green
-        this.game.isMultiplayer = true;
-        
-        // Initialize remote rules engine
+      console.log('[NETWORK] Opponent joined:', id);
+      this.game.isMultiplayer = true;
+
+      if (!this.game.remoteRulesEngine) {
         this.game.remoteRulesEngine = new BowlliardsRulesEngine();
-        
-        // Switch to multiplayer scoreboard
-        if (this.game.scoreboard) {
-            this.game.scoreboard.setupBoard('multi');
-            this.game.updateScoreboard();
-        }
-        
-        this.game.showNotification('Opponent Connected! Game Starting...', 3000);
-        console.log('[NETWORK] playerJoined -> Multiplayer ON. myPlayerNumber =', this.game.myPlayerNumber, 'isMyTurn =', this.game.isMyTurn);
-    });
-    
-    // --- AVATAR UPDATE ---
-    this.socket.on('opponentMoved', (data) => {
-        this.updateStatus(0x00ff00); 
-        
-        if (!this.ghostGroup.visible) this.ghostGroup.visible = true;
-        
-        const hasHand1 = !!data.hand1;
-        const hasHand2 = !!data.hand2;
-        const isVR = hasHand1 || hasHand2;
+      }
 
-        this.ghostHead.visible = !isVR;
-
-        if (data.head && typeof data.head.x === 'number') {
-            this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
-            this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-        }
-
-        if (hasHand1) {
-            this.ghostHand1.visible = true;
-            this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-            this.ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
-        } else {
-            this.ghostHand1.visible = false;
-        }
-
-        if (hasHand2) {
-            this.ghostHand2.visible = true;
-            this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-            this.ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
-        } else {
-            this.ghostHand2.visible = false;
-        }
-    });
-
-    // --- SHOT RECEIVED ---
-    this.socket.on('opponentShot', (data) => {
-        console.log("[NETWORK] RX: Opponent Shot");
-        this.game.showNotification('Opponent is shooting...', 1500);
-        
-        const direction = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
-        this.game.executeRemoteShot(direction, data.power, data.spin);
-    });
-
-    // --- PHYSICS SYNC ---
-    this.socket.on('tableStateUpdate', (data) => {
-        if (!this.game.isAuthority) {
-            this.game.poolTable.importState(data.balls);
-        }
-    });
-
-    // --- OPPONENT FRAME COMPLETE ---
-    this.socket.on('opponentFrameComplete', (scoresData) => {
-        console.log("[NETWORK] Opponent frame complete");
-        if (this.game.remoteRulesEngine && scoresData) {
-            this.game.remoteRulesEngine.importScores(scoresData);
-        }
-        this.game.onOpponentFrameComplete();
-        this.game.checkGameComplete();
-    });
-
-    // --- TURN CHANGE ---
-    this.socket.on('turnChanged', (data) => {
-        this.game.isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
-        
-        if (this.game.isMyTurn) {
-            this.game.showNotification("Your Turn!", 2000);
-        } else {
-            this.game.showNotification("Opponent's Turn", 2000);
-        }
-        
+      if (this.game.scoreboard) {
+        this.game.scoreboard.setupBoard('multi');
         this.game.updateScoreboard();
-        console.log("[NETWORK] turnChanged -> currentPlayer =", data.currentPlayer, "myPlayerNumber =", this.game.myPlayerNumber, "isMyTurn =", this.game.isMyTurn);
+      }
+
+      this.game.showNotification('Opponent Connected! Game Starting...', 3000);
     });
 
-    // --- DISCONNECT ---
+    // Opponent avatar movement
+    this.socket.on('opponentMoved', (data) => {
+      this.ghostGroup.visible = true;
+
+      this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
+      this.ghostHead.quaternion.set(
+        data.head.qx,
+        data.head.qy,
+        data.head.qz,
+        data.head.qw
+      );
+
+      if (data.hand1) {
+        this.ghostHand1.visible = true;
+        this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
+        this.ghostHand1.quaternion.set(
+          data.hand1.qx,
+          data.hand1.qy,
+          data.hand1.qz,
+          data.hand1.qw
+        );
+      } else {
+        this.ghostHand1.visible = false;
+      }
+
+      if (data.hand2) {
+        this.ghostHand2.visible = true;
+        this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
+        this.ghostHand2.quaternion.set(
+          data.hand2.qx,
+          data.hand2.qy,
+          data.hand2.qz,
+          data.hand2.qw
+        );
+      } else {
+        this.ghostHand2.visible = false;
+      }
+    });
+
+    // Shot from opponent
+    this.socket.on('opponentShot', (data) => {
+      console.log('[NETWORK] RX: Opponent Shot');
+      this.game.showNotification('Opponent is shooting...', 1500);
+
+      const direction = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
+      this.game.executeRemoteShot(direction, data.power, data.spin);
+    });
+
+    // Table state sync
+    this.socket.on('tableStateUpdate', (data) => {
+      if (!this.game.isAuthority) {
+        this.game.poolTable.importState(data.balls);
+      }
+    });
+
+    // Opponent finished their frame
+    this.socket.on('opponentFrameComplete', (scoresData) => {
+      console.log('[NETWORK] Opponent frame complete');
+      if (this.game.remoteRulesEngine && scoresData) {
+        this.game.remoteRulesEngine.importScores(scoresData);
+      }
+      this.game.onOpponentFrameComplete();
+      this.game.checkGameComplete();
+    });
+
+    // Server announcing whose turn it is (if you use this on backend)
+    this.socket.on('turnChanged', (data) => {
+      this.game.isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
+
+      if (this.game.isMyTurn) {
+        this.game.showNotification('Your Turn!', 2000);
+      } else {
+        this.game.showNotification("Opponent's Turn", 2000);
+      }
+
+      this.game.updateScoreboard();
+    });
+
     this.socket.on('disconnect', () => {
-        console.log('[NETWORK] Disconnected from server');
-        this.isConnected = false;
-        this.updateStatus(0xff0000); // Red
-        this.game.showNotification('Lost connection to server', 3000);
+      console.log('[NETWORK] Disconnected from server');
+      this.isConnected = false;
+      this.game.showNotification('Lost connection to server', 3000);
     });
   }
 
   joinRoom(roomCode) {
     if (!this.socket || !this.isConnected) {
-        this.connect();
-        setTimeout(() => this.joinRoom(roomCode), 500);
-        return;
+      this.connect();
+      setTimeout(() => this.joinRoom(roomCode), 500);
+      return;
     }
     this.roomCode = roomCode;
     console.log('[NETWORK] Joining room:', roomCode);
-
+    
     // As soon as we attempt to join a room, treat this client as multiplayer.
     if (this.game) {
-        this.game.isMultiplayer = true;
+      this.game.isMultiplayer = true;
 
-        if (!this.game.remoteRulesEngine) {
-            this.game.remoteRulesEngine = new BowlliardsRulesEngine();
-        }
+      if (!this.game.remoteRulesEngine) {
+        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+      }
 
-        if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-            this.game.scoreboard.setupBoard('multi');
-            this.game.updateScoreboard();
-        }
+      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+        this.game.scoreboard.setupBoard('multi');
+        this.game.updateScoreboard();
+      }
 
-        console.log('[NETWORK] joinRoom -> Multiplayer ON. myPlayerNumber =', this.game.myPlayerNumber, 'isMyTurn =', this.game.isMyTurn);
+      console.log(
+        '[NETWORK] joinRoom -> Multiplayer ON. myPlayerNumber =',
+        this.game.myPlayerNumber,
+        'isMyTurn =',
+        this.game.isMyTurn
+      );
     }
 
     this.socket.emit('joinRoom', roomCode);
@@ -250,63 +209,63 @@ export class NetworkManager {
   
   handleVRStart() {
     if (!this.isConnected && this.roomCode) {
-        console.log('[NETWORK] Reconnecting on VR start');
-        this.connect(); 
-        setTimeout(() => this.joinRoom(this.roomCode), 500);
+      console.log('[NETWORK] Reconnecting on VR start');
+      this.connect();
+      setTimeout(() => this.joinRoom(this.roomCode), 500);
     }
   }
-  
+
   sendAvatarUpdate() {
     if (!this.isConnected || !this.roomCode) return;
-    
+
     const headPos = new THREE.Vector3();
-    const headRot = new THREE.Quaternion();
+    const headQuat = new THREE.Quaternion();
     this.game.camera.getWorldPosition(headPos);
-    this.game.camera.getWorldQuaternion(headRot);
+    this.game.camera.getWorldQuaternion(headQuat);
 
     const data = {
-        roomCode: this.roomCode,
-        head: { 
-            x: headPos.x, y: headPos.y, z: headPos.z,
-            qx: headRot.x, qy: headRot.y, qz: headRot.z, qw: headRot.w
-        },
-        hand1: null,
-        hand2: null
+      roomCode: this.roomCode,
+      head: {
+        x: headPos.x,
+        y: headPos.y,
+        z: headPos.z,
+        qx: headQuat.x,
+        qy: headQuat.y,
+        qz: headQuat.z,
+        qw: headQuat.w
+      },
+      hand1: null,
+      hand2: null
     };
-    
+
     if (this.game.controller1) {
-        const p = new THREE.Vector3();
-        const q = new THREE.Quaternion();
-        this.game.controller1.getWorldPosition(p);
-        this.game.controller1.getWorldQuaternion(q);
-        if (p.lengthSq() > 0.01) data.hand1 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      this.game.controller1.getWorldPosition(p);
+      this.game.controller1.getWorldQuaternion(q);
+      data.hand1 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
     }
-    
+
     if (this.game.controller2) {
-        const p = new THREE.Vector3();
-        const q = new THREE.Quaternion();
-        this.game.controller2.getWorldPosition(p);
-        this.game.controller2.getWorldQuaternion(q);
-        if (p.lengthSq() > 0.01) data.hand2 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      this.game.controller2.getWorldPosition(p);
+      this.game.controller2.getWorldQuaternion(q);
+      data.hand2 = { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
     }
-    
+
     this.socket.emit('updateAvatar', data);
   }
 
   sendShot(direction, power, spin) {
     if (!this.isConnected || !this.roomCode) return;
-    console.log('[NETWORK] Sending shot to opponent', {
+    console.log('[NETWORK] Sending shot to opponent');
+    this.socket.emit('takeShot', {
       roomCode: this.roomCode,
-      myPlayerNumber: this.game.myPlayerNumber,
-      isMyTurn: this.game.isMyTurn
+      dir: { x: direction.x, y: direction.y, z: direction.z },
+      power,
+      spin
     });
-    const shotData = { 
-        roomCode: this.roomCode, 
-        dir: { x: direction.x, y: direction.y, z: direction.z }, 
-        power: power, 
-        spin: spin 
-    };
-    this.socket.emit('takeShot', shotData);
   }
 
   sendTableState(ballsData) {
@@ -317,13 +276,10 @@ export class NetworkManager {
   // --- SEND FRAME COMPLETE ---
   sendFrameComplete(scoresData) {
     if (!this.isConnected || !this.roomCode) return;
-    console.log('[NETWORK] Sending frame complete', {
-      roomCode: this.roomCode,
-      myPlayerNumber: this.game.myPlayerNumber
-    });
+    console.log('[NETWORK] Sending frame complete');
     this.socket.emit('frameComplete', { 
-        roomCode: this.roomCode, 
-        scores: scoresData 
+      roomCode: this.roomCode, 
+      scores: scoresData 
     });
   }
 }
