@@ -9,7 +9,7 @@ const io = new Server(server, {
 });
 
 // Track rooms and player assignments
-const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId }
+const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2 }
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
@@ -19,7 +19,7 @@ io.on('connection', (socket) => {
     
     // Get or create room data
     if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, { player1: null, player2: null });
+      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1 });
     }
     
     const room = rooms.get(roomCode);
@@ -54,11 +54,26 @@ io.on('connection', (socket) => {
     
     // If both players are now in the room, start the game
     if (room.player1 && room.player2) {
+      // Initialize turn to player 1
+      room.currentTurn = 1;
+      
       io.to(roomCode).emit('gameReady', {
         player1: room.player1,
-        player2: room.player2
+        player2: room.player2,
+        currentTurn: 1
       });
-      console.log(`Room ${roomCode} is READY - Both players connected!`);
+      
+      // Send turn state to both players
+      io.to(room.player1).emit('turnChanged', { 
+        currentPlayer: 1,
+        roomCode: roomCode 
+      });
+      io.to(room.player2).emit('turnChanged', { 
+        currentPlayer: 1,
+        roomCode: roomCode 
+      });
+      
+      console.log(`Room ${roomCode} is READY - Both players connected! Player 1's turn.`);
     }
   });
 
@@ -78,10 +93,28 @@ io.on('connection', (socket) => {
   });
   // --------------------------------
 
-  // --- NEW: Frame Complete (Turn Switching) ---
+  // --- Frame Complete (Turn Switching) ---
   socket.on('frameComplete', (data) => {
     console.log(`*** FRAME COMPLETE in Room ${data.roomCode} ***`);
+    
+    const room = rooms.get(data.roomCode);
+    if (!room) {
+      console.log(`ERROR: Room ${data.roomCode} not found!`);
+      return;
+    }
+    
+    // Send scores to opponent
     socket.to(data.roomCode).emit('opponentFrameComplete', data.scores);
+    
+    // Switch turns
+    room.currentTurn = room.currentTurn === 1 ? 2 : 1;
+    console.log(`Room ${data.roomCode}: Turn switched to Player ${room.currentTurn}`);
+    
+    // Notify BOTH players of the turn change
+    io.to(data.roomCode).emit('turnChanged', { 
+      currentPlayer: room.currentTurn,
+      roomCode: data.roomCode 
+    });
   });
   // -------------------------------------------
 
