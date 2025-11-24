@@ -137,6 +137,11 @@
       document.getElementById('statusText').textContent = "Matchmaking canceled.";
       document.getElementById('statusText').style.color = '#ff4444';
     };
+    
+    window.hideAllOverlays = function() {
+      document.getElementById('lobby').classList.add('hidden');
+      document.getElementById('waitingScreen').classList.add('hidden');
+    };
 
     document.addEventListener('DOMContentLoaded', () => {
       const roomInput = document.getElementById('roomCodeInput');

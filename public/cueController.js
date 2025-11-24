@@ -35,7 +35,11 @@ export class CueController {
     this.lockedButtPos = new THREE.Vector3(); 
     this.strokeStartPos = new THREE.Vector3();
     this.lastStrokePos = new THREE.Vector3(); 
-    this.strokeVelocity = 0; 
+    this.strokeVelocity = 0;
+    
+    // Velocity history for better slow shot detection
+    this.velocityHistory = [];
+    this.maxHistoryFrames = 5; // Track last 5 frames 
     
     // --- SETTINGS (Optimized Mixed Version) ---
     this.maxPower = 3.0;        // Lowered from 6.0 to double power translation (swing feels more responsive)
@@ -119,6 +123,7 @@ export class CueController {
     this.lastStrokePos.copy(this.strokeStartPos);
     
     this.strokeVelocity = 0;
+    this.velocityHistory = []; // Clear velocity history for new shot
     this.lastFrameTime = performance.now();
   }
 
@@ -126,6 +131,7 @@ export class CueController {
     if (this.controlState !== 'STROKE_LOCKED') return;
     this.controlState = 'IDLE';
     this.strokeVelocity = 0;
+    this.velocityHistory = []; // Clear velocity history
     this.shotArmed = false;
   }
 
@@ -174,6 +180,7 @@ export class CueController {
       this.cuePivot.lookAt(bridgePos); 
       
       this.strokeVelocity = 0;
+      this.velocityHistory = []; // Clear velocity history in idle state
     } else if (this.controlState === 'STROKE_LOCKED') {
       // In LOCKED, cue follows the line established when trigger was pressed
       this.cuePivot.quaternion.copy(this.lockedAimQuaternion);
@@ -208,8 +215,37 @@ export class CueController {
         frameVelocity = deltaVec.dot(strokeDirection) / dt;
       }
       
-      if (frameVelocity > this.strokeVelocity) {
-        this.strokeVelocity = frameVelocity;
+      // Add current velocity to history
+      this.velocityHistory.push(frameVelocity);
+      if (this.velocityHistory.length > this.maxHistoryFrames) {
+        this.velocityHistory.shift();
+      }
+      
+      // For slow shots: Use weighted average of recent velocities (more weight on recent frames)
+      // For fast shots: Use maximum velocity as before
+      let recentAvgVelocity = 0;
+      if (this.velocityHistory.length > 0) {
+        let weightSum = 0;
+        let weightedSum = 0;
+        for (let i = 0; i < this.velocityHistory.length; i++) {
+          const weight = i + 1; // More recent frames get higher weight
+          weightedSum += this.velocityHistory[i] * weight;
+          weightSum += weight;
+        }
+        recentAvgVelocity = weightedSum / weightSum;
+      }
+      
+      // Determine which method to use based on velocity magnitude
+      // For slow movements (< 1.0 m/s), use weighted average
+      // For fast movements, use maximum velocity
+      if (Math.abs(frameVelocity) < 1.0) {
+        // Slow shot: use weighted average for more accurate slow shot detection
+        this.strokeVelocity = Math.max(this.strokeVelocity, recentAvgVelocity);
+      } else {
+        // Fast shot: use maximum velocity as before
+        if (frameVelocity > this.strokeVelocity) {
+          this.strokeVelocity = frameVelocity;
+        }
       }
 
       // SHOT TRIGGER LOGIC - Requires actual cue tip collision with ball
@@ -269,6 +305,7 @@ export class CueController {
 
         this.controlState = 'IDLE';
         this.strokeVelocity = 0;
+        this.velocityHistory = []; // Clear velocity history after shot
         this.shotArmed = false; // Reset
       }
 

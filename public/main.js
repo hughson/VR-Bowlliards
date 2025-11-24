@@ -260,6 +260,12 @@ class VRBowlliardsGame {
     this.myPlayerName = localStorage.getItem('bowlliards_playerName') || "Player";
     
     this.networkManager = new NetworkManager(this);
+    
+    // Connect to server immediately to get player count for lobby
+    // (Don't join a room yet - just connect for stats)
+    if (!window.ROOM_CODE) {
+      this.networkManager.connect();
+    }
 
     if (window.ROOM_CODE) {
         console.log("[INIT] Found Room Code from Lobby:", window.ROOM_CODE);
@@ -1115,6 +1121,7 @@ class VRBowlliardsGame {
     if (this.settingsPanel) this.settingsPanel.update();
     if (this.networkManager) {
         this.networkManager.sendAvatarUpdate();
+        this.networkManager.updateLocalNameLabel(); // Update local player name label
         if (this.isAuthority && !this.ballsSettled && this.gameState === 'shooting') {
              const state = this.poolTable.exportState();
              this.networkManager.sendTableState(state);

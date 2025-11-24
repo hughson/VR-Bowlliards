@@ -13,8 +13,12 @@ export class NetworkManager {
     this.ghostHead = null;
     this.ghostHand1 = null;
     this.ghostHand2 = null;
+    this.ghostNameLabel = null;
+    
+    this.localNameLabel = null;
     
     this.initGhost();
+    this.initLocalNameLabel();
   }
 
   initGhost() {
@@ -34,8 +38,98 @@ export class NetworkManager {
     this.ghostGroup.add(this.ghostHand1);
     this.ghostGroup.add(this.ghostHand2);
 
+    // Create name label for opponent (cyan color)
+    this.ghostNameLabel = this.createNameLabel('Opponent', false);
+    this.ghostGroup.add(this.ghostNameLabel);
+
     this.ghostGroup.visible = false;
     this.game.scene.add(this.ghostGroup);
+  }
+
+  createNameLabel(text, isLocal = false) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 512;
+    canvas.height = 128;
+
+    // Draw background with rounded corners
+    context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw text with glow effect
+    context.font = 'bold 64px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    
+    // Use different colors for local vs remote player
+    const glowColor = isLocal ? '#00ff00' : '#00ffff';
+    const textColor = isLocal ? '#00ff00' : '#00ffff';
+    
+    // Add text shadow/glow
+    context.shadowColor = glowColor;
+    context.shadowBlur = 10;
+    context.fillStyle = '#ffffff';
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    
+    // Draw text again without shadow for crispness
+    context.shadowBlur = 0;
+    context.fillStyle = textColor;
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ 
+      map: texture,
+      depthTest: false,  // Always render on top
+      depthWrite: false
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.5, 0.125, 1);  // Slightly larger
+    sprite.position.set(0, 0.25, 0); // Above the head
+
+    return sprite;
+  }
+
+  initLocalNameLabel() {
+    // Create name label for local player using actual player name (green)
+    const playerName = this.game.myPlayerName || 'Player';
+    this.localNameLabel = this.createNameLabel(playerName, true);
+    this.localNameLabel.visible = false;
+    this.game.scene.add(this.localNameLabel);
+  }
+
+  updateLocalNameLabel() {
+    if (!this.localNameLabel || !this.game.isMultiplayer || !this.game.gameStarted) {
+      if (this.localNameLabel) this.localNameLabel.visible = false;
+      return;
+    }
+
+    this.localNameLabel.visible = true;
+    
+    // Position above local player's head (camera position)
+    const headPos = new THREE.Vector3();
+    this.game.camera.getWorldPosition(headPos);
+    this.localNameLabel.position.copy(headPos);
+    this.localNameLabel.position.y += 0.3; // Above head
+  }
+
+  updateGhostNameLabel(opponentName) {
+    if (this.ghostNameLabel && opponentName) {
+      // Recreate the label with new name (cyan for opponent)
+      this.ghostGroup.remove(this.ghostNameLabel);
+      this.ghostNameLabel = this.createNameLabel(opponentName, false);
+      this.ghostGroup.add(this.ghostNameLabel);
+    }
+  }
+
+  updateMyNameLabel(newName) {
+    if (this.localNameLabel && newName) {
+      // Recreate the label with new name (green for local player)
+      this.game.scene.remove(this.localNameLabel);
+      this.localNameLabel = this.createNameLabel(newName, true);
+      this.localNameLabel.visible = this.game.isMultiplayer && this.game.gameStarted;
+      this.game.scene.add(this.localNameLabel);
+      this.game.myPlayerName = newName;
+    }
   }
 
   connect() {
@@ -50,6 +144,9 @@ export class NetworkManager {
     this.socket.on('connect', () => {
       this.isConnected = true;
       console.log('[NETWORK] Connected to Server');
+      
+      // Request current player count
+      this.socket.emit('requestPlayerCount');
     });
 
     this.socket.on('connect_error', (err) => {
@@ -64,6 +161,14 @@ export class NetworkManager {
       
       this.game.myPlayerNumber = data.playerNumber;
       this.roomCode = data.roomCode;
+      
+      // Hide both waiting screen AND lobby (in case player was matched immediately)
+      if (window.hideCancelButton) {
+        window.hideCancelButton();
+      }
+      if (window.hideAllOverlays) {
+        window.hideAllOverlays();
+      }
       
       // Player 1 (first to join) is host and goes first
       const isMyTurn = (data.playerNumber === 1);
@@ -124,8 +229,28 @@ export class NetworkManager {
     this.socket.on('gameReady', (data) => {
       console.log('[NETWORK] ===== GAME READY =====');
       console.log('[NETWORK] Both players connected!');
-      console.log('[NETWORK] Player 1:', data.player1);
-      console.log('[NETWORK] Player 2:', data.player2);
+      console.log('[NETWORK] Player 1:', data.player1, data.player1Name);
+      console.log('[NETWORK] Player 2:', data.player2, data.player2Name);
+      
+      // Store opponent's name
+      if (this.game.myPlayerNumber === 1) {
+        this.game.remotePlayerName = data.player2Name || 'Opponent';
+      } else {
+        this.game.remotePlayerName = data.player1Name || 'Opponent';
+      }
+      
+      // Update ghost name label with opponent's name
+      this.updateGhostNameLabel(this.game.remotePlayerName);
+      
+      console.log('[NETWORK] Opponent name:', this.game.remotePlayerName);
+      
+      // Hide all overlays (waiting screen AND lobby)
+      if (window.hideCancelButton) {
+        window.hideCancelButton();
+      }
+      if (window.hideAllOverlays) {
+        window.hideAllOverlays();
+      }
       
       this.game.isMultiplayer = true;
       this.game.gameStarted = true;  // Mark game as actually started
@@ -163,6 +288,11 @@ export class NetworkManager {
       this.ghostGroup.visible = true;
       this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
       this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
+      
+      // Update name label position to follow head
+      if (this.ghostNameLabel) {
+        this.ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
+      }
 
       if (data.hand1) {
         this.ghostHand1.visible = true;
@@ -316,7 +446,10 @@ export class NetworkManager {
       console.log('[NETWORK] Waiting for server to assign player number...');
     }
 
-    this.socket.emit('joinRoom', roomCode);
+    this.socket.emit('joinRoom', { 
+      roomCode: roomCode,
+      playerName: this.game.myPlayerName 
+    });
   }
   
   // NEW: Join public matchmaking queue
@@ -345,8 +478,10 @@ export class NetworkManager {
       console.log('[NETWORK] Waiting for matchmaking...');
     }
 
-    // Emit to server to find/create public room
-    this.socket.emit('joinPublicMatch');
+    // Emit to server to find/create public room (with player name)
+    this.socket.emit('joinPublicMatch', {
+      playerName: this.game.myPlayerName
+    });
   }
   
   // NEW: Cancel public matchmaking
