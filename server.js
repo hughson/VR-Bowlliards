@@ -20,6 +20,11 @@ io.on('connection', (socket) => {
   // Broadcast updated player count to all clients
   io.emit('playerCount', { count: io.engine.clientsCount });
 
+  // Handle explicit player count requests
+  socket.on('requestPlayerCount', () => {
+    socket.emit('playerCount', { count: io.engine.clientsCount });
+  });
+
   // ============================================
   // PUBLIC MATCHMAKING
   // ============================================
