@@ -9,7 +9,7 @@ const io = new Server(server, {
 });
 
 // Track rooms and player assignments
-const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2 }
+const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2, player1Name: string, player2Name: string }
 
 // Track available public rooms for matchmaking
 const publicRooms = new Map(); // roomCode -> { player1: socketId, createdAt: timestamp }
@@ -28,8 +28,9 @@ io.on('connection', (socket) => {
   // ============================================
   // PUBLIC MATCHMAKING
   // ============================================
-  socket.on('joinPublicMatch', () => {
-    console.log('[PUBLIC] Matchmaking request from:', socket.id);
+  socket.on('joinPublicMatch', (data) => {
+    const playerName = data?.playerName || 'Player';
+    console.log('[PUBLIC] Matchmaking request from:', socket.id, `(${playerName})`);
     
     // Find first available public room with 1 player waiting
     let availableRoom = null;
@@ -45,7 +46,7 @@ io.on('connection', (socket) => {
       console.log('[PUBLIC] Joining player to existing room:', availableRoom);
       publicRooms.delete(availableRoom); // Remove from queue
       socket.emit('joinRoom', availableRoom); // Trigger normal join flow
-      handleJoinRoom(socket, availableRoom);
+      handleJoinRoom(socket, availableRoom, playerName);
     } else {
       // Create new public room
       const newRoomCode = 'PUB-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -57,10 +58,10 @@ io.on('connection', (socket) => {
       });
       
       // Initialize room
-      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1 });
+      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null });
       
       socket.emit('joinRoom', newRoomCode); // Trigger normal join flow
-      handleJoinRoom(socket, newRoomCode);
+      handleJoinRoom(socket, newRoomCode, playerName);
       
       // Notify player they're waiting
       socket.emit('waitingForOpponent', { roomCode: newRoomCode });
@@ -88,16 +89,18 @@ io.on('connection', (socket) => {
   // ============================================
   // PRIVATE ROOM JOIN
   // ============================================
-  socket.on('joinRoom', (roomCode) => {
-    handleJoinRoom(socket, roomCode);
+  socket.on('joinRoom', (data) => {
+    const roomCode = typeof data === 'string' ? data : data.roomCode;
+    const playerName = typeof data === 'object' ? data.playerName : 'Player';
+    handleJoinRoom(socket, roomCode, playerName);
   });
   
-  function handleJoinRoom(socket, roomCode) {
+  function handleJoinRoom(socket, roomCode, playerName = 'Player') {
     socket.join(roomCode);
     
     // Get or create room data
     if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1 });
+      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null });
     }
     
     const room = rooms.get(roomCode);
@@ -106,12 +109,14 @@ io.on('connection', (socket) => {
     // Assign player number based on who joined first
     if (!room.player1) {
       room.player1 = socket.id;
+      room.player1Name = playerName;
       playerNumber = 1;
-      console.log(`User ${socket.id} joined room ${roomCode} as PLAYER 1 (HOST)`);
+      console.log(`User ${socket.id} (${playerName}) joined room ${roomCode} as PLAYER 1 (HOST)`);
     } else if (!room.player2) {
       room.player2 = socket.id;
+      room.player2Name = playerName;
       playerNumber = 2;
-      console.log(`User ${socket.id} joined room ${roomCode} as PLAYER 2 (GUEST)`);
+      console.log(`User ${socket.id} (${playerName}) joined room ${roomCode} as PLAYER 2 (GUEST)`);
     } else {
       console.log(`User ${socket.id} tried to join FULL room ${roomCode}`);
       socket.emit('roomFull');
@@ -124,10 +129,11 @@ io.on('connection', (socket) => {
       roomCode: roomCode 
     });
     
-    // Notify the other player
+    // Notify the other player about the new player (including their name)
     socket.to(roomCode).emit('playerJoined', { 
       socketId: socket.id,
-      playerNumber: playerNumber 
+      playerNumber: playerNumber,
+      playerName: playerName
     });
     
     // If both players are now in the room, start the game
@@ -138,6 +144,8 @@ io.on('connection', (socket) => {
       io.to(roomCode).emit('gameReady', {
         player1: room.player1,
         player2: room.player2,
+        player1Name: room.player1Name,
+        player2Name: room.player2Name,
         currentTurn: 1
       });
       
