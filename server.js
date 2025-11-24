@@ -4,6 +4,9 @@ const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
 
+// Serve static files from the public directory
+app.use(express.static('public'));
+
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
