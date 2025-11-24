@@ -684,30 +684,31 @@ export class PoolTable {
       
       const velocity = bodyA.velocity.distanceTo(bodyB.velocity);
 
-      // 1. BALL ON BALL
-      if (bodyA.collisionFilterGroup === 1 && bodyB.collisionFilterGroup === 1) {
+      // Check for CUSHION collision FIRST (priority)
+      let isCushionCollision = false;
+      let ballBody = null;
+      
+      if (bodyA.collisionFilterGroup === 1 && bodyB.userData?.isCushion) {
+        isCushionCollision = true;
+        ballBody = bodyA;
+      } else if (bodyB.collisionFilterGroup === 1 && bodyA.userData?.isCushion) {
+        isCushionCollision = true;
+        ballBody = bodyB;
+      }
+
+      if (isCushionCollision && ballBody && this.soundManager) {
+        // Play ONLY cushion sound for cushion collisions
+        const pos = new THREE.Vector3(ballBody.position.x, ballBody.position.y, ballBody.position.z);
+        this.soundManager.playSound('cushionHit', pos, velocity * 1.5);
+      } else if (bodyA.collisionFilterGroup === 1 && bodyB.collisionFilterGroup === 1 && this.soundManager) {
+        // Play ball-to-ball sound ONLY if it's NOT a cushion collision
         const contactPos = new THREE.Vector3(
           (bodyA.position.x + bodyB.position.x) / 2,
           (bodyA.position.y + bodyB.position.y) / 2,
           (bodyA.position.z + bodyB.position.z) / 2
         );
-        
-        if (this.soundManager) {
-           this.soundManager.playSound('ballHit', contactPos, velocity);
-        }
+        this.soundManager.playSound('ballHit', contactPos, velocity);
       }
-
-      // 2. BALL ON CUSHION
-      let ballBody = null;
-      if (bodyA.collisionFilterGroup === 1 && bodyB.userData?.isCushion) {
-          ballBody = bodyA;
-      } else if (bodyB.collisionFilterGroup === 1 && bodyA.userData?.isCushion) {
-          ballBody = bodyB;
-      }
-
-      if (ballBody && this.soundManager) {
-          const pos = new THREE.Vector3(ballBody.position.x, ballBody.position.y, ballBody.position.z);
-          this.soundManager.playSound('cushionHit', pos, velocity * 1.5);
       }
 
       // 3. SPIN APPLICATION
@@ -928,10 +929,10 @@ export class PoolTable {
       material: this.physics.ballMaterial,
       
       // === TUNED FOR REALISM (Heavy Table) ===
-      linearDamping: 0.38,
+      linearDamping: 0.19,
       
       // === SLIDE vs ROLL IMPLEMENTATION ===
-      angularDamping: 0.38, 
+      angularDamping: 0.19, 
       
       ccdSpeedThreshold: 0.1, 
       ccdIterations: 10
@@ -1105,7 +1106,7 @@ export class PoolTable {
     const CREEP_THRESHOLD = 0.08; // units/second
     const STOP_DAMPING = 0.98;    // Linear damping for stopping
     const STOP_ANGULAR_DAMPING = 0.98;    // Kill spin fast when stopping
-    const NORMAL_ANGULAR_DAMPING = 0.38;  // Default spin decay
+    const NORMAL_ANGULAR_DAMPING = 0.19;  // Default spin decay (REDUCED for longer rolls)
 
     this.balls.forEach(ball => {
       if (ball.position.y < -0.5 || ball.userData.isPocketed) return;
@@ -1119,29 +1120,27 @@ export class PoolTable {
       const spinSpeed = w.length() * 0.028; // angular velocity * radius
       const slip = Math.abs(speed - spinSpeed);
 
-      if (slip > 0.1) {
-         // SKIDDING (High Friction)
-         body.linearDamping = 0.55; 
-      } else {
-         // ROLLING (Low Friction)
-         body.linearDamping = 0.25; 
-      }
-      
-      // === DYNAMIC DAMPING FOR ABRUPT STOP (LINEAR & ANGULAR) ===
+      // === PROGRESSIVE DAMPING - Increases as ball slows down ===
       if (speed < CREEP_THRESHOLD) {
-          body.linearDamping = STOP_DAMPING;
-          body.angularDamping = STOP_ANGULAR_DAMPING; // Kill spin
+        // Abrupt stop at very low speeds
+        body.linearDamping = STOP_DAMPING;
+        body.angularDamping = STOP_ANGULAR_DAMPING;
+      } else if (speed < 0.5) {
+        // Gentle damping when slowing down (0.08 to 0.5 speed)
+        body.linearDamping = 0.32;
+        body.angularDamping = 0.28;
+      } else if (speed < 1.5) {
+        // Light damping at medium speeds (0.5 to 1.5)
+        body.linearDamping = 0.22;
+        body.angularDamping = 0.20;
       } else {
-          // Reset angular damping if moving above threshold
-          body.angularDamping = NORMAL_ANGULAR_DAMPING;
-          
-          if (slip < 0.1) {
-              // If rolling and above threshold, use normal rolling friction (0.25)
-              body.linearDamping = 0.25;
-          } else {
-              // If sliding and above threshold, use normal sliding friction (0.55)
-              body.linearDamping = 0.55;
-          }
+        // Low damping for fast rolling or skidding
+        if (slip > 0.1) {
+          body.linearDamping = 0.28; 
+        } else {
+          body.linearDamping = 0.13; 
+        }
+        body.angularDamping = NORMAL_ANGULAR_DAMPING;
       }
 
       if (ball.userData.ballNumber === 0) {

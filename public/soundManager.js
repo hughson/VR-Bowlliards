@@ -3,112 +3,138 @@ import * as THREE from 'three';
 export class SoundManager {
   constructor(camera) {
     this.camera = camera;
+
+    // Create the listener, but DO NOT add it to the camera yet.
+    // Adding it while the context is suspended causes the 'linearRampToValueAtTime' crash.
     this.audioListener = new THREE.AudioListener();
-    this.camera.add(this.audioListener);
-    
-    this.soundBuffers = {};
-    this.activeSounds = {}; // Track playing sounds for toggling
-    this.loader = new THREE.AudioLoader();
-    
-    // Mapping logical names to the filenames you provided
+    this.isAudioActive = false;
+
+    this.audioLoader = new THREE.AudioLoader();
+    this.soundBuffers = {};  
+    this.activeSounds = {};  
+
     this.sources = {
       ballHit: 'sound when do balls make impact with one another.mp3',
       cushionHit: 'ball hits cusion.mp3',
-      pocketHard: 'ball falling into pocket hard shot.mp3',
+      cueHitSoft: 'impact of cue hitting cue.mp3', 
+      cueHitHard: 'impact of cue hitting cue.mp3',
       pocketSoft: 'ball falling in pocket slowly.mp3',
-      cueHitHard: 'impact of cue hitting cue ball harder.mp3',
-      cueHitSoft: 'impact of cue hitting cue.mp3',
-      // --- NEW: The Movie Audio ---
-      hustlerMovie: 'The VR Hustler (Full Movie).mp3'
+      pocketHard: 'ball falling into pocket hard shot.mp3',
+      hustlerMovie: 'The VR Hustler (Full Movie).mp3',
+      yourTurn: 'It is Your turn.mp3'
     };
 
-    // Time tracking to prevent audio phasing
-    this.lastPlayTimes = {}; 
-    
-    this.loadSounds();
+    this.baseVolumes = {
+      ballHit: 0.6,
+      cushionHit: 0.7,
+      cueHitSoft: 0.8,
+      cueHitHard: 1.0,
+      pocketSoft: 0.7,
+      pocketHard: 1.0,
+      hustlerMovie: 0.4,
+      yourTurn: 1.0
+    };
   }
 
-  loadSounds() {
-    for (const [key, file] of Object.entries(this.sources)) {
-      this.loader.load(file, (buffer) => {
+  // --- SAFETY FIX: Only attach audio when user interacts ---
+  resumeContext() {
+    if (this.isAudioActive) return;
+
+    // 1. Attach listener to camera now that we are ready
+    this.camera.add(this.audioListener);
+    this.isAudioActive = true;
+
+    // 2. Resume the context
+    if (this.audioListener.context && this.audioListener.context.state === 'suspended') {
+      this.audioListener.context.resume().then(() => {
+        console.log('[SoundManager] Audio Context Resumed & Listener Attached');
+      }).catch(err => console.warn('[SoundManager] Failed to resume audio:', err));
+    }
+  }
+  
+  toggleSound(key, position) {
+    // Check if this sound is already playing
+    if (this.activeSounds[key]) {
+      // Stop the sound
+      this.activeSounds[key].stop();
+      this.activeSounds[key] = null;
+      console.log(`[SoundManager] Stopped ${key}`);
+    } else {
+      // Start the sound
+      this.playSound(key, position, 1.0);
+      console.log(`[SoundManager] Started ${key}`);
+    }
+  }
+
+  _playFromBuffer(key, buffer, position, volume) {
+    // CRITICAL FIX: Do not attempt to play if listener is not attached
+    if (!buffer || !this.isAudioActive) return;
+
+    const sound = new THREE.PositionalAudio(this.audioListener);
+    sound.setBuffer(buffer);
+    sound.setRefDistance(1.5);
+    sound.setRolloffFactor(1.5);
+    sound.setDistanceModel('inverse');
+
+    const safeVolume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 0.8));
+    sound.setVolume(safeVolume);
+
+    const obj = new THREE.Object3D();
+    if (position && position.isVector3) {
+      obj.position.copy(position);
+    } else {
+      obj.position.set(0, 1.0, 0);
+    }
+
+    const parent = this.camera.parent || this.camera;
+    parent.add(obj);
+    obj.add(sound);
+
+    sound.play();
+
+    // Store long-playing sounds so we can stop them later
+    if (key === 'hustlerMovie') {
+      this.activeSounds[key] = sound;
+    }
+
+    const src = sound.source;
+    if (src && typeof src.onended !== 'undefined') {
+      src.onended = () => {
+        if (obj.parent) obj.parent.remove(obj);
+        // Clear from activeSounds when it ends
+        if (this.activeSounds[key] === sound) {
+          this.activeSounds[key] = null;
+        }
+      };
+    }
+  }
+
+  playSound(key, position, intensity = 1.0) {
+    // If audio isn't active yet, ignore the request to prevent crashes
+    if (!this.isAudioActive) return;
+
+    const file = this.sources[key];
+    if (!file) return;
+
+    const base = this.baseVolumes[key] != null ? this.baseVolumes[key] : 1.0;
+    const safeIntensity = Number.isFinite(intensity) ? Math.max(0, intensity) : 1.0;
+    const volume = base * safeIntensity;
+
+    if (this.soundBuffers[key]) {
+      this._playFromBuffer(key, this.soundBuffers[key], position, volume);
+      return;
+    }
+
+    this.audioLoader.load(
+      file,
+      (buffer) => {
         this.soundBuffers[key] = buffer;
-      }, undefined, (err) => {
-        console.warn(`Error loading sound ${file}:`, err);
-      });
-    }
-  }
-
-  /**
-   * Plays a sound at a specific 3D location
-   */
-  playSound(soundKey, position, intensity = 10) {
-    if (!this.soundBuffers[soundKey]) return;
-
-    const now = performance.now();
-    if (this.lastPlayTimes[soundKey] && (now - this.lastPlayTimes[soundKey] < 30)) {
-      return; 
-    }
-    this.lastPlayTimes[soundKey] = now;
-
-    let volume = Math.min(Math.abs(intensity) / 10, 1.0);
-    if (volume < 0.05) return;
-
-    const sound = new THREE.PositionalAudio(this.audioListener);
-    sound.setBuffer(this.soundBuffers[soundKey]);
-    sound.setRefDistance(1.0); 
-    sound.setRolloffFactor(1.0); 
-    sound.setVolume(volume);
-
-    const soundObj = new THREE.Object3D();
-    soundObj.position.copy(position);
-    this.camera.parent.add(soundObj); 
-    soundObj.add(sound);
-
-    sound.play();
-
-    sound.onEnded = () => {
-      if (sound.isPlaying) sound.stop();
-      sound.disconnect();
-      soundObj.remove(sound);
-      soundObj.parent.remove(soundObj);
-    };
-  }
-
-  // --- NEW: Toggle specific audio (for the movie button) ---
-  toggleSound(soundKey, position) {
-    if (!this.soundBuffers[soundKey]) return false;
-
-    // If sound is already playing, stop it
-    if (this.activeSounds[soundKey]) {
-      const oldSound = this.activeSounds[soundKey];
-      if (oldSound.isPlaying) oldSound.stop();
-      oldSound.disconnect();
-      
-      // Cleanup parent object if it exists
-      if (oldSound.parent && oldSound.parent.parent) {
-        oldSound.parent.parent.remove(oldSound.parent);
+        this._playFromBuffer(key, buffer, position, volume);
+      },
+      undefined,
+      (err) => {
+        console.error('[SoundManager] Failed to load sound:', file, err);
       }
-      
-      delete this.activeSounds[soundKey];
-      return false; // State: OFF
-    } 
-    
-    // If not playing, start it
-    const sound = new THREE.PositionalAudio(this.audioListener);
-    sound.setBuffer(this.soundBuffers[soundKey]);
-    sound.setRefDistance(2.0); // Audbile from further away
-    sound.setRolloffFactor(0.5); // Gentle rolloff so you can hear it around the table
-    sound.setVolume(1.0);
-    sound.setLoop(true); // Loop the movie? Or play once. Let's loop for ambience.
-
-    const soundObj = new THREE.Object3D();
-    soundObj.position.copy(position);
-    this.camera.parent.add(soundObj);
-    soundObj.add(sound);
-
-    sound.play();
-    this.activeSounds[soundKey] = sound;
-    
-    return true; // State: ON
+    );
   }
 }

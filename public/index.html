@@ -33,8 +33,8 @@
     }
     #lobby button:active { transform: scale(0.98); }
     #lobby button:hover { opacity: 0.9; }
-    #joinBtn { background: #0088ff; }
-    #hostBtn { background: #00aa44; }
+    #publicMatchBtn { background: #00cc44; }
+    #privateMatchBtn { background: #0088ff; }
     #singlePlayerBtn { background: #ffaa00; color: #331100; margin-top: 10px; border: 2px solid #ffcc00; }
     
     .divider { display: flex; align-items: center; text-align: center; color: #666; margin: 15px 0; font-size: 12px; }
@@ -43,8 +43,12 @@
     .divider:not(:empty)::after { margin-left: .5em; }
     .hidden { display: none !important; }
     .discord-link { color: #5865F2; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px; }
-    #info input, #info button { font-size: 14px; margin-top: 5px; }
-    #nameSaved { color: #00ff88; font-weight: bold; margin-left: 10px; }
+    
+    #playerCount { color: #00ff88; font-size: 13px; margin-bottom: 15px; font-weight: bold; }
+    #cancelBtn { background: #ff4444; margin-top: 15px; }
+    #waitingScreen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 20, 40, 0.95); padding: 30px; border: 2px solid #00ff88; border-radius: 15px; text-align: center; z-index: 20; min-width: 320px; box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
+    .spinner { border: 3px solid #333; border-top: 3px solid #00ff88; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -63,23 +67,39 @@
   
   <div id="lobby">
     <h2>VR BOWLLIARDS</h2>
-    <p>Select Game Mode</p>
+    <p>Play against others or practice solo</p>
+    
+    <div id="playerCount">🌍 Loading player count...</div>
+    
+    <button id="publicMatchBtn">🌍 FIND PUBLIC MATCH</button>
+    <br>
+    <div class="divider">OR</div>
     <input type="text" id="roomCodeInput" placeholder="ROOM CODE" maxlength="10" style="text-transform:uppercase;">
     <br>
-    <button id="joinBtn">JOIN GAME</button>
-    <button id="hostBtn">HOST GAME</button>
+    <button id="privateMatchBtn">🔒 PRIVATE ROOM</button>
     <div class="divider">OR PLAY SOLO</div>
     <button id="singlePlayerBtn">SINGLE PLAYER</button>
     <br><br>
     <small id="statusText" style="color:#888;">Waiting for selection.</small>
   </div>
+  
+  <div id="waitingScreen" class="hidden">
+    <h2 style="color:#00ff88;">Finding Opponent...</h2>
+    <div class="spinner"></div>
+    <p style="color:#ccc; margin: 20px 0;">Searching for available players...</p>
+    <button id="cancelBtn">CANCEL</button>
+  </div>
 
   <div id="info">
-    <strong>Player Setup:</strong><br>
-    <label for="playerNameInput">Name: </label>
-    <input type="text" id="playerNameInput" placeholder="Enter name">
-    <button id="saveNameButton">Save</button>
-    <span id="nameSaved" style="display:none;"> Saved!</span>
+    <div id="loginStatus">
+      <span id="loggedInMsg" style="display:none; color:#00ff88;">✓ Logged in as <strong id="loggedInName"></strong></span>
+      <a id="loginBtn" href="stats.html" style="color:#00ff88; text-decoration:none; font-weight:bold;">🔐 Login to track stats</a>
+    </div>
+    <br>
+    <div style="display:flex; gap:15px; flex-wrap:wrap;">
+      <a href="stats.html" style="color:#00ff88; text-decoration:none; font-weight:bold;">📊 My Stats</a>
+      <a href="leaderboards.html" style="color:#ffd700; text-decoration:none; font-weight:bold;">🏆 Leaderboards</a>
+    </div>
     <br>
     <a href="https://discord.gg/ubzPZkUtcgt" target="_blank" class="discord-link">Join our Discord</a>
   </div>
@@ -93,18 +113,88 @@
   
   <script>
     window.ROOM_CODE = null; 
-        window.IS_HOST = null;
+    window.IS_HOST = null; // Deprecated - server assigns roles now
+
+    // Global functions for NetworkManager callbacks
+    window.updatePlayerCount = function(count) {
+      const playerCountDiv = document.getElementById('playerCount');
+      if (playerCountDiv) {
+        playerCountDiv.textContent = `🌍 ${count} player${count !== 1 ? 's' : ''} online`;
+      }
+    };
+    
+    window.showCancelButton = function() {
+      document.getElementById('lobby').classList.add('hidden');
+      document.getElementById('waitingScreen').classList.remove('hidden');
+    };
+    
+    window.hideCancelButton = function() {
+      document.getElementById('waitingScreen').classList.add('hidden');
+    };
+    
+    window.showLobby = function() {
+      document.getElementById('lobby').classList.remove('hidden');
+      document.getElementById('statusText').textContent = "Matchmaking canceled.";
+      document.getElementById('statusText').style.color = '#ff4444';
+    };
 
     document.addEventListener('DOMContentLoaded', () => {
       const roomInput = document.getElementById('roomCodeInput');
-      const joinBtn = document.getElementById('joinBtn');
-      const hostBtn = document.getElementById('hostBtn');
+      const publicMatchBtn = document.getElementById('publicMatchBtn');
+      const privateMatchBtn = document.getElementById('privateMatchBtn');
       const singleBtn = document.getElementById('singlePlayerBtn');
+      const cancelBtn = document.getElementById('cancelBtn');
       const statusText = document.getElementById('statusText');
       const lobbyDiv = document.getElementById('lobby');
 
       function generateCode() { return Math.random().toString(36).substring(2, 6).toUpperCase(); }
 
+      // PUBLIC MATCH BUTTON
+      publicMatchBtn.addEventListener('click', () => {
+        statusText.textContent = "Finding opponent...";
+        statusText.style.color = '#00cc44';
+        
+        window.ROOM_CODE = 'PUBLIC'; // Flag for public match
+        window.IS_HOST = null;
+        
+        if (window.game && window.game.networkManager) {
+          window.game.networkManager.joinPublicMatch();
+        }
+        
+        // Don't hide lobby yet - wait for server response
+      });
+      
+      // CANCEL BUTTON
+      cancelBtn.addEventListener('click', () => {
+        if (window.game && window.game.networkManager) {
+          window.game.networkManager.cancelMatchmaking();
+        }
+      });
+
+      // PRIVATE ROOM BUTTON
+      privateMatchBtn.addEventListener('click', () => {
+        let code = roomInput.value.trim().toUpperCase();
+        if (code.length === 0) {
+          // No code entered - generate one and create new room
+          code = generateCode();
+          statusText.textContent = `Creating Room: ${code}...`;
+          statusText.style.color = '#0088ff';
+        } else {
+          // Code entered - join existing room
+          statusText.textContent = `Joining Room: ${code}...`;
+          statusText.style.color = '#0088ff';
+        }
+        
+        window.ROOM_CODE = code;
+        window.IS_HOST = null; // Server will assign role
+        
+        if (window.game && window.game.networkManager) {
+          window.game.networkManager.joinRoom(code);
+        }
+        setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 1500);
+      });
+
+      // SINGLE PLAYER BUTTON
       singleBtn.addEventListener('click', () => {
         window.ROOM_CODE = null; 
         window.IS_HOST = null;
@@ -112,50 +202,25 @@
         statusText.style.color = '#ffaa00';
         setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 800);
       });
-
-      hostBtn.addEventListener('click', () => {
-        let code = roomInput.value.trim().toUpperCase();
-        if (code.length === 0) code = generateCode();
-        window.ROOM_CODE = code;
-        window.IS_HOST = true;
-        statusText.textContent = `Hosting Room: ${code}. Connecting...`;
-        statusText.style.color = '#00ff88';
-        if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
-        setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 1500);
-      });
-
-      joinBtn.addEventListener('click', () => {
-        const code = roomInput.value.trim().toUpperCase();
-        if (code.length > 0) {
-            window.ROOM_CODE = code;
-            window.IS_HOST = false;
-            statusText.textContent = `Joining Room: ${code}. Connecting...`;
-            statusText.style.color = '#0088ff';
-            if (window.game && window.game.networkManager) window.game.networkManager.joinRoom(code);
-            setTimeout(() => { lobbyDiv.classList.add('hidden'); }, 1500);
-        } else {
-            alert("Please enter a room code to join!");
-        }
-      });
-      
-      // PLAYER NAME SAVE
-      const input = document.getElementById('playerNameInput');
-      const button = document.getElementById('saveNameButton');
-      const savedText = document.getElementById('nameSaved');
-      const savedName = localStorage.getItem('bowlliards_playerName');
-      if (savedName) input.value = savedName;
-      
-      button.addEventListener('click', () => {
-        const name = input.value;
-        if (name && name.trim() !== "") {
-          localStorage.setItem('bowlliards_playerName', name.trim());
-          savedText.style.display = 'inline';
-          input.disabled = true;
-          button.disabled = true;
-          setTimeout(() => { savedText.style.display = 'none'; input.disabled = false; button.disabled = false; }, 2000);
-        }
-      });
     });
+  </script>
+  
+  <script type="module">
+    // Check login status
+    import { StatsTracker } from './statsTracker.js';
+    
+    const tracker = new StatsTracker();
+    const result = await tracker.autoLogin();
+    
+    const loginBtn = document.getElementById('loginBtn');
+    const loggedInMsg = document.getElementById('loggedInMsg');
+    const loggedInName = document.getElementById('loggedInName');
+    
+    if (result.success) {
+      loginBtn.style.display = 'none';
+      loggedInMsg.style.display = 'inline';
+      loggedInName.textContent = tracker.currentPlayer.displayName;
+    }
   </script>
 </body>
 </html>

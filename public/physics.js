@@ -22,15 +22,15 @@ export class PhysicsWorld {
     
     const ballTableContact = new CANNON.ContactMaterial(ballMaterial, tableMaterial, {
       restitution: 0.05,        // Almost zero bounce on felt
-      friction: 0.30,           // Balanced friction for natural roll
+      friction: 0.15,           // REDUCED from 0.30 - Less friction for longer rolls
       contactEquationStiffness: 1e7,
       contactEquationRelaxation: 4
     });
     
-    // --- MODIFICATION: Reduced restitution from 0.98 to 0.80 ---
+    // --- MODIFICATION: Improved restitution for better slow-ball cushion bounce ---
     const ballCushionContact = new CANNON.ContactMaterial(ballMaterial, cushionMaterial, {
-      restitution: 0.80,  // Reduced for more realistic energy loss on rails
-      friction: 0.08,     
+      restitution: 0.85,  // Increased from 0.80 to prevent slow-ball sticking
+      friction: 0.06,     // Reduced from 0.08 to help slow balls slide off cushions
       contactEquationStiffness: 1e8,  
       contactEquationRelaxation: 3
     });

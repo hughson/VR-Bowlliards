@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leaderboards - VR Bowlliards</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: linear-gradient(135deg, #001a1a 0%, #002020 50%, #001a1a 100%);
+      background-attachment: fixed;
+      color: #ffffff;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    /* Header */
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 15px;
+      padding: 20px; margin-bottom: 30px;
+      background: rgba(0, 40, 40, 0.8);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      border-radius: 15px;
+    }
+    .header h1 { color: #ffd700; font-family: 'Orbitron', monospace; font-size: 28px; }
+    .header a {
+      padding: 10px 20px; border-radius: 8px; font-weight: 700;
+      text-decoration: none; background: #0088ff; color: white;
+      transition: all 0.2s;
+    }
+    .header a:hover { background: #00aaff; }
+    
+    /* Tabs */
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-bottom: 25px; justify-content: center;
+    }
+    .tab {
+      padding: 12px 24px; border-radius: 8px; cursor: pointer;
+      background: rgba(0, 40, 40, 0.8); color: #888;
+      border: 2px solid transparent; font-weight: 700;
+      font-family: 'Orbitron', monospace; font-size: 14px;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: #00ff88; border-color: rgba(0, 255, 136, 0.3); }
+    .tab.active { color: #00ff88; border-color: #00ff88; background: rgba(0, 255, 136, 0.1); }
+    
+    /* Leaderboard Table */
+    .leaderboard {
+      background: rgba(0, 40, 40, 0.8);
+      border: 1px solid rgba(0, 255, 136, 0.3);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    .leaderboard-title {
+      background: rgba(0, 255, 136, 0.1);
+      padding: 20px; text-align: center;
+      color: #ffd700; font-family: 'Orbitron', monospace;
+      font-size: 22px; font-weight: 700;
+      border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+    }
+    .leaderboard table {
+      width: 100%; border-collapse: collapse;
+    }
+    .leaderboard th, .leaderboard td {
+      padding: 14px 20px; text-align: left;
+    }
+    .leaderboard th {
+      background: rgba(0, 0, 0, 0.3);
+      color: #00ff88; font-family: 'Orbitron', monospace;
+      font-size: 14px; text-transform: uppercase;
+    }
+    .leaderboard td {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .leaderboard tr:hover td {
+      background: rgba(0, 255, 136, 0.05);
+    }
+    .rank { width: 60px; text-align: center; font-weight: 700; }
+    .rank-1 { color: #ffd700; font-size: 20px; }
+    .rank-2 { color: #c0c0c0; font-size: 18px; }
+    .rank-3 { color: #cd7f32; font-size: 18px; }
+    .player-name { font-weight: 600; }
+    .stat-value { 
+      color: #00ff88; font-family: 'Orbitron', monospace;
+      font-weight: 700; font-size: 18px; text-align: right;
+    }
+    .loading {
+      text-align: center; padding: 50px;
+      color: #888; font-size: 18px;
+    }
+    
+    @media (max-width: 600px) {
+      .header { flex-direction: column; text-align: center; }
+      .tabs { gap: 8px; }
+      .tab { padding: 10px 16px; font-size: 12px; }
+      .leaderboard th, .leaderboard td { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🏆 LEADERBOARDS</h1>
+      <div>
+        <a href="index.html">🎮 Play</a>
+        <a href="stats.html">📊 My Stats</a>
+      </div>
+    </div>
+    
+    <div class="tabs">
+      <div class="tab active" data-stat="highScore">High Score</div>
+      <div class="tab" data-stat="avgScore">Avg Score</div>
+      <div class="tab" data-stat="winRecord">Win Record</div>
+      <div class="tab" data-stat="highRun">High Run</div>
+      <div class="tab" data-stat="highFrameScore">High Frame</div>
+      <div class="tab" data-stat="maxBreakBalls">Best Break</div>
+      <div class="tab" data-stat="totalGames">Most Games</div>
+      <div class="tab" data-stat="pottingAvg">Potting Avg</div>
+    </div>
+
+
+    <div class="leaderboard">
+      <div class="leaderboard-title" id="leaderboardTitle">HIGH SCORE - TOP 100</div>
+      <div id="leaderboardContent">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StatsTracker } from './statsTracker.js';
+    
+    const tracker = new StatsTracker();
+    const tabs = document.querySelectorAll('.tab');
+    const titleEl = document.getElementById('leaderboardTitle');
+    const contentEl = document.getElementById('leaderboardContent');
+    
+    const statLabels = {
+      highScore: { title: 'HIGH SCORE', column: 'SCORE' },
+      avgScore: { title: 'AVERAGE SCORE', column: 'AVG' },
+      winRecord: { title: 'WIN RECORD', column: 'W-L-T' },
+      highRun: { title: 'HIGH RUN', column: 'RUN' },
+      highFrameScore: { title: 'HIGH FRAME', column: 'FRAME' },
+      maxBreakBalls: { title: 'BEST BREAK', column: 'BALLS' },
+      totalGames: { title: 'MOST GAMES', column: 'GAMES' },
+      pottingAvg: { title: 'POTTING AVERAGE', column: 'AVG' }
+    };
+    
+    // Tab click handlers
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        loadLeaderboard(tab.dataset.stat);
+      });
+    });
+    
+    async function loadLeaderboard(statKey) {
+      const label = statLabels[statKey];
+      titleEl.textContent = `${label.title} - TOP 100`;
+      contentEl.innerHTML = '<div class="loading">Loading...</div>';
+      
+      let data;
+      if (statKey === 'avgScore') {
+        data = await tracker.getAvgScoreLeaderboard(100);
+      } else if (statKey === 'pottingAvg') {
+        data = await tracker.getPottingAvgLeaderboard(100);
+      } else if (statKey === 'winRecord') {
+        data = await tracker.getWinRecordLeaderboard(100);
+      } else {
+        data = await tracker.getLeaderboard(statKey, 100);
+      }
+      
+      if (data.length === 0) {
+        contentEl.innerHTML = '<div class="loading">No data yet. Be the first!</div>';
+        return;
+      }
+      
+      let html = `<table>
+        <thead><tr>
+          <th class="rank">RANK</th>
+          <th>PLAYER</th>
+          <th style="text-align:right">${label.column}</th>
+        </tr></thead><tbody>`;
+      
+      data.forEach((entry, i) => {
+        const rankClass = i < 3 ? `rank-${i + 1}` : '';
+        html += `<tr>
+          <td class="rank ${rankClass}">${i + 1}</td>
+          <td class="player-name">${entry.name}</td>
+          <td class="stat-value">${entry.value}</td>
+        </tr>`;
+      });
+      
+      html += '</tbody></table>';
+      contentEl.innerHTML = html;
+    }
+    
+    // Load initial leaderboard
+    loadLeaderboard('highScore');
+  </script>
+</body>
+</html>

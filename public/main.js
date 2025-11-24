@@ -7,7 +7,7 @@ import { PoolTable } from './poolTable.js';
 import { PhysicsWorld } from './physics.js';
 import { CueController } from './cueController.js';
 import { BowlliardsRulesEngine } from './scoring.js';
-import { Scoreboard, LeaderboardDisplay } from './scoreboard.js';
+import { Scoreboard, LeaderboardDisplay, PersonalStatsDisplay, CyclingLeaderboardDisplay } from './scoreboard.js';
 import { BallInHand } from './ballInHand.js';
 import { Leaderboard } from './leaderboard.js';
 import { DesktopControls } from './desktopControls.js';
@@ -15,79 +15,145 @@ import { SettingsPanel } from './settingsPanel.js';
 import { SoundManager } from './soundManager.js';
 import { CelebrationSystem } from './celebrationSystem.js';
 import { NetworkManager } from './networkManager.js';
+import { StatsTracker } from './statsTracker.js';
 
 class VRBowlliardsGame {
   constructor() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
-
+    this.setupRenderer();
+    this.setupScene();
+    this.setupCamera();
+    this.setupLighting();
+    this.setupPhysics();
+    this.setupLocomotion();
+    this.setupVR();
+    this.setupDesktopControls();
+    
     this.clock = new THREE.Clock();
     this.leftHanded = false;
     this.isVR = false;
-
-    // Multiplayer Turn Management
+    
+    // Multiplayer Defaults
     this.isMultiplayer = false;
-    this.isMyTurn = true;  // Start with your turn
-    this.myPlayerNumber = 1; // 1 or 2
+    this.isMyTurn = true;  
+    this.myPlayerNumber = 1; 
     this.myPlayerName = "Player";
     this.remotePlayerName = "Opponent";
     this.remoteRulesEngine = null;
     this.isAuthority = true;
-
+    this.gameStarted = false;  // True only when both players are connected
+    
+    this.leftHandController = null;
+    this.rightHandController = null;
+    
     this.ballsSettled = true;
     this.breakShotTaken = false;
     this.currentInning = 1;
     this.frameJustStarted = true;
     this.gameState = 'ready';
-
-    this.setupCamera();
-    this.setupLighting();
-    this.setupRenderer();
-    this.setupPhysics();
-    this.setupLocomotion();
-    this.setupDesktopControls();
-    this.setupVR();
-
+    
     window.addEventListener('resize', () => this.onWindowResize());
   }
 
+  setTurnState(isMyTurn) {
+    console.log(`[GAME] ===== SET TURN STATE =====`);
+    console.log(`[GAME] Setting turn to: ${isMyTurn ? "MY TURN" : "OPPONENT'S TURN"}`);
+    console.log(`[GAME] Player Number: ${this.myPlayerNumber}`);
+    console.log(`[GAME] Previous state: ${this.isMyTurn ? "was my turn" : "was opponent's turn"}`);
+    
+    this.isMyTurn = isMyTurn;
+
+    if (this.isMyTurn) {
+        this.gameState = 'ready';
+        // Enable ball in hand if it's a new rack or specific foul state
+        if (this.frameJustStarted || this.gameState === 'ballInHand') {
+             this.ballInHand.enable(true);
+        }
+        this.showNotification("Your Turn!", 2000);
+        
+        // Play "It is your turn" audio notification in multiplayer (only after game has started)
+        if (this.isMultiplayer && this.gameStarted && this.soundManager) {
+            this.soundManager.playSound('yourTurn', null, 1.0);
+        }
+        
+        console.log(`[GAME] ✓ Controls ENABLED - You can shoot`);
+    } else {
+        this.gameState = 'waiting';
+        this.ballInHand.disable();
+        if (this.cueController) this.cueController.updateDesktop(false); 
+        this.showNotification("Opponent's Turn", 3000);
+        console.log(`[GAME] ✗ Controls LOCKED - Waiting for opponent`);
+    }
+    this.updateScoreboard();
+    console.log(`[GAME] ===== END SET TURN STATE =====`);
+  }
+
+  setupRenderer() {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = false;
+
+    this.renderer.xr.enabled = true;
+    document.body.appendChild(this.renderer.domElement);
+    const vrButton = VRButton.createButton(this.renderer);
+    document.body.appendChild(vrButton);
+
+    this.renderer.xr.setReferenceSpaceType('local-floor');
+
+    window.addEventListener('resize', () => {
+      if (!this.renderer.xr.isPresenting) {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+    });
+
+    this.renderer.xr.addEventListener('sessionstart', () => {
+      this.isVR = true;
+      this.locomotion.dolly.position.set(-1.2, 0, 0);
+      this.locomotion.dolly.rotation.set(0, -Math.PI / 2, 0);
+      if (this.desktopControls) this.desktopControls.setVREnabled(true);
+      if (this.soundManager) this.soundManager.resumeContext();
+      if (this.networkManager) this.networkManager.handleVRStart();
+    });
+
+    this.renderer.xr.addEventListener('sessionend', () => {
+      this.isVR = false;
+      this.locomotion.dolly.position.set(0, 0, 0);
+      this.locomotion.dolly.rotation.set(0, 0, 0);
+      if (this.desktopControls) this.desktopControls.setVREnabled(false);
+    });
+  }
+
+  setupScene() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x1a1a1a);
+    this.scene.fog = new THREE.Fog(0x1a1a1a, 10, 30);
+  }
+
   setupCamera() {
-    this.camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      100
-    );
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
     this.camera.position.set(0, 1.6, 2);
   }
 
   setupLighting() {
     const ambient = new THREE.AmbientLight(0x404040, 0.5);
     this.scene.add(ambient);
-
-    const spotLight = new THREE.SpotLight(0xffffff, 1.2);
-    spotLight.position.set(0, 3, 0);
-    spotLight.angle = Math.PI / 4;
-    spotLight.penumbra = 0.3;
-    spotLight.decay = 2;
-    spotLight.distance = 10;
-    spotLight.castShadow = true;
-    this.scene.add(spotLight);
-
-    const spotTarget = new THREE.Object3D();
-    spotTarget.position.set(0, 0.75, 0);
-    this.scene.add(spotTarget);
-    spotLight.target = spotTarget;
-  }
-
-  setupRenderer() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.xr.enabled = true;
-
-    document.body.appendChild(this.renderer.domElement);
-    document.body.appendChild(VRButton.createButton(this.renderer));
+    const tableSpot = new THREE.SpotLight(0xffffff, 3.0, 10, Math.PI / 4, 0.3, 1);
+    tableSpot.position.set(0, 4, 0);
+    tableSpot.target.position.set(0, 0, 0);
+    tableSpot.castShadow = false;
+    this.scene.add(tableSpot);
+    this.scene.add(tableSpot.target);
+    const spotPositions = [[-2, 0], [2, 0], [0, -3], [0, 3], [-2, -3], [2, -3], [-2, 3], [2, 3]];
+    spotPositions.forEach(([x, z]) => {
+      const spot = new THREE.SpotLight(0xfff4e6, 1.0, 15, Math.PI / 6, 0.5, 1);
+      spot.position.set(x, 4.5, z);
+      spot.target.position.set(x, 0, z);
+      spot.castShadow = false;
+      this.scene.add(spot);
+      this.scene.add(spot.target);
+    });
   }
 
   setupPhysics() {
@@ -113,105 +179,62 @@ class VRBowlliardsGame {
   }
 
   setupVR() {
-    this.renderer.xr.enabled = true;
-
     const controllerModelFactory = new XRControllerModelFactory();
     this.controller1 = this.renderer.xr.getController(0);
     this.controller2 = this.renderer.xr.getController(1);
-
     this.controller1.userData.index = 0;
     this.controller2.userData.index = 1;
-
     this.scene.add(this.controller1);
     this.scene.add(this.controller2);
-
     const grip1 = this.renderer.xr.getControllerGrip(0);
     const grip2 = this.renderer.xr.getControllerGrip(1);
-
     grip1.add(controllerModelFactory.createControllerModel(grip1));
     grip2.add(controllerModelFactory.createControllerModel(grip2));
-
     this.locomotion.dolly.add(grip1);
     this.locomotion.dolly.add(grip2);
-
     this.leftHandController = this.controller1;
     this.rightHandController = this.controller2;
 
     const handleConnection = (controller) => {
       controller.addEventListener('connected', (event) => {
-        if (event.data.handedness === 'left') {
-          this.leftHandController = controller;
-        }
-        if (event.data.handedness === 'right') {
-          this.rightHandController = controller;
-        }
-        const grip = this.renderer.xr.getControllerGrip(
-          controller === this.controller1 ? 0 : 1
-        );
+        if (event.data.handedness === 'left') this.leftHandController = controller;
+        if (event.data.handedness === 'right') this.rightHandController = controller;
+        const grip = this.renderer.xr.getControllerGrip(controller === this.controller1 ? 0 : 1);
         grip.add(controllerModelFactory.createControllerModel(grip));
         this.locomotion.dolly.add(grip);
       });
     };
-
     handleConnection(this.controller1);
     handleConnection(this.controller2);
-
     this.locomotion.dolly.add(this.controller1);
     this.locomotion.dolly.add(this.controller2);
 
-    const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 0, -0.1)
-    ]);
+    const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.1)]);
     const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-
     const onSelectStart = (controller) => {
-      const strokeController = this.getStrokeController();
-      if (controller !== strokeController) {
+      // Either hand's trigger can lock the cue for shooting
+      // First check if we're in a state where we can lock
+      if (this.gameState !== 'ballInHand' && this.gameState !== 'gameOver' && this.ballsSettled) {
         this.onLockStrokeStart();
-      } else {
-        if (this.settingsPanel) {
-          this.settingsPanel.onSelectStart(controller);
-        }
       }
-    };
-
-    const onSelectEnd = (controller) => {
+      // Also handle settings panel with stroke controller
       const strokeController = this.getStrokeController();
-      if (controller !== strokeController) {
-        this.onLockStrokeEnd();
+      if (controller === strokeController && this.settingsPanel) {
+        this.settingsPanel.onSelectStart(controller);
       }
     };
-
+    const onSelectEnd = (controller) => {
+      // Either trigger release unlocks the cue
+      this.onLockStrokeEnd();
+    };
     this.controller1.addEventListener('selectstart', () => onSelectStart(this.controller1));
     this.controller1.addEventListener('selectend', () => onSelectEnd(this.controller1));
-
     this.controller2.addEventListener('selectstart', () => onSelectStart(this.controller2));
     this.controller2.addEventListener('selectend', () => onSelectEnd(this.controller2));
-
     this.controller1.addEventListener('squeezestart', () => this.onBallInHandStart(0));
     this.controller1.addEventListener('squeezeend', () => this.onBallInHandEnd(0));
-
     this.controller2.addEventListener('squeezestart', () => this.onBallInHandStart(1));
     this.controller2.addEventListener('squeezeend', () => this.onBallInHandEnd(1));
-
-    this.renderer.xr.addEventListener('sessionstart', () => {
-      this.isVR = true;
-      this.locomotion.dolly.position.set(-1.2, 0, 0);
-      this.locomotion.dolly.rotation.set(0, -Math.PI / 2, 0);
-      if (this.desktopControls) this.desktopControls.setVREnabled(true);
-
-      if (this.networkManager) {
-        this.networkManager.handleVRStart();
-      }
-    });
-
-    this.renderer.xr.addEventListener('sessionend', () => {
-      this.isVR = false;
-      this.locomotion.dolly.position.set(0, 0, 0);
-      this.locomotion.dolly.rotation.set(0, 0, 0);
-      if (this.desktopControls) this.desktopControls.setVREnabled(false);
-    });
   }
 
   getStrokeController() {
@@ -221,72 +244,77 @@ class VRBowlliardsGame {
 
   async initGame() {
     createEnvironment(this.scene);
-
     this.soundManager = new SoundManager(this.camera);
+    
+    const unlockAudio = () => {
+        if (this.soundManager) this.soundManager.resumeContext();
+        document.body.removeEventListener('click', unlockAudio);
+        document.body.removeEventListener('keydown', unlockAudio);
+    };
+    document.body.addEventListener('click', unlockAudio);
+    document.body.addEventListener('keydown', unlockAudio);
 
     this.poolTable = new PoolTable(this.scene, this.physics, this.soundManager);
     this.celebrationSystem = new CelebrationSystem(this.scene, this.camera, this.poolTable);
     
-    // Get player name
     this.myPlayerName = localStorage.getItem('bowlliards_playerName') || "Player";
-    if (!this.myPlayerName || this.myPlayerName.trim() === "") {
-      this.myPlayerName = "Player";
-    }
     
-    // --- Network Manager Init ---
     this.networkManager = new NetworkManager(this);
 
-    // Multiplayer / lobby config (host vs join) BEFORE other game objects use turn state
     if (window.ROOM_CODE) {
-        console.log("[INIT] Found Room Code from Lobby:", window.ROOM_CODE, "IS_HOST:", window.IS_HOST);
-
-        // Mark this client as multiplayer
+        console.log("[INIT] Found Room Code from Lobby:", window.ROOM_CODE);
+        console.log("[INIT] Server will assign player number automatically");
         this.isMultiplayer = true;
-
-        // Decide provisional player number based on how we entered the lobby
-        if (window.IS_HOST === false) {
-            // Joined player
-            this.myPlayerNumber = 2;
-            this.isMyTurn = false;
-            console.log("[INIT] Provisional role: JOINED player (Player 2). isMyTurn =", this.isMyTurn);
-        } else {
-            // Host player (or default)
-            this.myPlayerNumber = 1;
-            this.isMyTurn = true;
-            console.log("[INIT] Provisional role: HOST (Player 1). isMyTurn =", this.isMyTurn);
-        }
-
-        // Ensure we have a remote rules engine to track opponent scores
-        if (!this.remoteRulesEngine) {
-            this.remoteRulesEngine = new BowlliardsRulesEngine();
-        }
-
-        // Actually join the room on the server
+        // Don't set player number here - wait for server assignment
+        this.gameState = 'waiting';
+        this.isMyTurn = false; // Default to waiting, server will update
+        
+        if (!this.remoteRulesEngine) this.remoteRulesEngine = new BowlliardsRulesEngine();
         this.networkManager.joinRoom(window.ROOM_CODE);
     }
 
     this.cueController = new CueController(
-      this.scene,
-      null, 
-      null,
-      () => this.leftHanded,
-      () => this.isVR,
-      this.poolTable,
-      this 
+      this.scene, null, null,
+      () => this.leftHanded, () => this.isVR,
+      this.poolTable, this 
     );
     this.rulesEngine = new BowlliardsRulesEngine();
-    
     this.scoreboard = new Scoreboard(this.scene); 
-    this.leaderboardDisplay = new LeaderboardDisplay(this.scene); 
+    this.leaderboardDisplay = new LeaderboardDisplay(this.scene);
     
-    // If we already know we are in multiplayer, switch the board now
+    // Stats tracking system
+    this.statsTracker = new StatsTracker();
+    
+    // Personal stats display (VR corner board)
+    this.personalStatsDisplay = new PersonalStatsDisplay(this.scene);
+    
+    // Cycling leaderboard (enhanced version)
+    this.cyclingLeaderboard = new CyclingLeaderboardDisplay(this.scene, this.statsTracker);
+    
+    // Try to auto-login player for stats tracking
+    try {
+      const authResult = await this.statsTracker.autoLogin();
+      if (authResult.success) {
+        console.log('[GAME] Auto-logged in as:', this.statsTracker.currentPlayer.displayName);
+        this.myPlayerName = this.statsTracker.currentPlayer.displayName;
+        localStorage.setItem('bowlliards_playerName', this.myPlayerName);
+        // Update personal stats display
+        const stats = this.statsTracker.getMyStats();
+        this.personalStatsDisplay.update(stats, this.myPlayerName);
+      }
+    } catch (e) {
+      console.log('[GAME] No saved login found');
+    }
+    
+    // Load cycling leaderboard
+    this.cyclingLeaderboard.loadAndDisplay();
+    
     if (this.isMultiplayer) {
         this.scoreboard.setupBoard('multi');
         this.updateScoreboard();
     }
     
     this.ballInHand = new BallInHand(this.scene, this.poolTable, () => this.isVR);
-    
     this.leaderboard = new Leaderboard();
     await this.leaderboard.init(); 
     
@@ -306,9 +334,7 @@ class VRBowlliardsGame {
     this.leaderboardDisplay.update(this.leaderboard);
 
     this.setupNewFrame(true);
-    this.gameState = 'ready';
-    this.ballInHand.enable(true);
-
+    
     this.renderer.setAnimationLoop(() => this.animate());
   }
 
@@ -318,10 +344,34 @@ class VRBowlliardsGame {
     this.frameJustStarted = true;
     this.ballsSettled = false;
 
+    if (this.isMultiplayer) {
+        if (this.isMyTurn) {
+            this.gameState = 'ready';
+            this.ballInHand.enable(true);
+            // --- CRITICAL: Force Sync Racked Table ---
+            if (this.networkManager) {
+                setTimeout(() => {
+                    const state = this.poolTable.exportState();
+                    this.networkManager.sendTableState(state);
+                }, 200);
+            }
+        } else {
+            this.gameState = 'waiting';
+            this.ballInHand.disable();
+        }
+    } else {
+        this.gameState = 'ready';
+        this.ballInHand.enable(true);
+    }
+
     if (!isBreakShot) {
       setTimeout(() => {
         this.ballsSettled = true;
-        this.gameState = 'ready';
+        if (this.isMultiplayer && !this.isMyTurn) {
+             this.gameState = 'waiting';
+        } else {
+             this.gameState = 'ready';
+        }
         this.updateScoreboard();
       }, 800);
     } else {
@@ -331,19 +381,13 @@ class VRBowlliardsGame {
   }
 
   _getGamepadsByHand(session) {
-    let left = null,
-      right = null;
-
+    let left = null, right = null;
     const sources = session?.inputSources || [];
     for (const src of sources) {
       if (!src?.gamepad) continue;
       if (src.handedness === 'left') left = src.gamepad;
       else if (src.handedness === 'right') right = src.gamepad;
     }
-
-    if (!left) left = sources[0]?.gamepad || null;
-    if (!right) right = sources[1]?.gamepad || null;
-
     return { left, right };
   }
 
@@ -352,71 +396,70 @@ class VRBowlliardsGame {
       if (this.desktopControls) this.desktopControls.update(delta);
       return;
     }
-
     const session = this.renderer.xr.getSession();
     if (!session) return;
-
     const { left: leftGamepad, right: rightGamepad } = this._getGamepadsByHand(session);
     const deadZone = 0.2;
-
     if (leftGamepad && leftGamepad.axes && leftGamepad.axes.length >= 4) {
       const x = -(leftGamepad.axes[2] ?? 0);
       const y = leftGamepad.axes[3] ?? 0;
-
       if (Math.abs(x) > deadZone || Math.abs(y) > deadZone) {
-        const cameraDirection = new THREE.Vector3();
-        this.camera.getWorldDirection(cameraDirection);
-        cameraDirection.y = 0;
-        cameraDirection.normalize();
-
-        const cameraRight = new THREE.Vector3();
-        cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), cameraDirection).normalize();
-
-        const moveVector = new THREE.Vector3();
-        moveVector.addScaledVector(cameraRight, x * this.locomotion.speed * delta);
-        moveVector.addScaledVector(
-          cameraDirection,
-          -y * this.locomotion.speed * delta
-        );
-
-        this.locomotion.dolly.position.add(moveVector);
+        const cd = new THREE.Vector3(); this.camera.getWorldDirection(cd); cd.y = 0; cd.normalize();
+        const cr = new THREE.Vector3(); cr.crossVectors(new THREE.Vector3(0,1,0), cd).normalize();
+        const mv = new THREE.Vector3();
+        mv.addScaledVector(cr, x * this.locomotion.speed * delta);
+        mv.addScaledVector(cd, -y * this.locomotion.speed * delta);
+        this.locomotion.dolly.position.add(mv);
       }
     }
-
     if (rightGamepad && rightGamepad.axes && rightGamepad.axes.length >= 4) {
-      const turnX = -(rightGamepad.axes[2] ?? 0);
-      const heightY = rightGamepad.axes[3] ?? 0;
-
-      const heightButtonPressed =
-        rightGamepad.buttons &&
-        rightGamepad.buttons[3] &&
-        rightGamepad.buttons[3].pressed;
-
-      const deadZone = 0.2;
-
-      if (heightButtonPressed) {
-        if (Math.abs(heightY) > deadZone) {
-          let newY =
-            this.locomotion.dolly.position.y +
-            -heightY * this.locomotion.heightAdjustSpeed * delta;
-          newY = Math.min(this.locomotion.heightMax, Math.max(this.locomotion.heightMin, newY));
-          this.locomotion.dolly.position.y = newY;
+      const tx = -(rightGamepad.axes[2] ?? 0);
+      const hy = rightGamepad.axes[3] ?? 0;
+      
+      // Height adjust: Right thumbstick pressed (button 3) OR Y button on left controller (button 5)
+      const hBtn = rightGamepad.buttons && rightGamepad.buttons[3] && rightGamepad.buttons[3].pressed;
+      const yBtn = leftGamepad && leftGamepad.buttons && leftGamepad.buttons[5] && leftGamepad.buttons[5].pressed;
+      const heightAdjustActive = hBtn || yBtn;
+      
+      if (heightAdjustActive) {
+        if (Math.abs(hy) > deadZone) {
+          let ny = this.locomotion.dolly.position.y + -hy * this.locomotion.heightAdjustSpeed * delta;
+          ny = Math.min(this.locomotion.heightMax, Math.max(this.locomotion.heightMin, ny));
+          this.locomotion.dolly.position.y = ny;
         }
       } else {
-        if (Math.abs(turnX) > deadZone) {
-          const turnAmount = turnX * this.locomotion.smoothTurnSpeed * delta;
-          this.locomotion.dolly.rotateY(turnAmount);
+        if (Math.abs(tx) > deadZone) {
+          this.locomotion.dolly.rotateY(tx * this.locomotion.smoothTurnSpeed * delta);
         }
       }
+      
+      // A button (button 4) to cycle leaderboard forward
+      const aBtn = rightGamepad.buttons && rightGamepad.buttons[4] && rightGamepad.buttons[4].pressed;
+      if (aBtn && !this._aBtnWasPressed) {
+        if (this.cyclingLeaderboard) {
+          this.cyclingLeaderboard.cycleNext();
+        }
+      }
+      this._aBtnWasPressed = aBtn;
+    }
+    
+    // X button on left controller (button 4) to cycle leaderboard backward
+    if (leftGamepad && leftGamepad.buttons && leftGamepad.buttons[4]) {
+      const xBtn = leftGamepad.buttons[4].pressed;
+      if (xBtn && !this._xBtnWasPressed) {
+        if (this.cyclingLeaderboard) {
+          this.cyclingLeaderboard.cyclePrev();
+        }
+      }
+      this._xBtnWasPressed = xBtn;
     }
   }
 
   onBallInHandStart(controllerIndex) {
     if (!this.isVR) return;
-
+    if (this.isMultiplayer && !this.isMyTurn) return;
     const canGrab = this.gameState === 'ballInHand' || this.ballInHand.enabled;
     if (!canGrab) return;
-
     const controller = controllerIndex === 0 ? this.controller1 : this.controller2;
     if (this.ballInHand.grab(controller)) {
       this.gameState = 'ballInHand';
@@ -426,7 +469,6 @@ class VRBowlliardsGame {
 
   onBallInHandEnd(controllerIndex) {
     if (!this.isVR || this.gameState !== 'ballInHand') return;
-
     const controller = controllerIndex === 0 ? this.controller1 : this.controller2;
     const placed = this.ballInHand.release(controller);
     if (placed) {
@@ -437,7 +479,8 @@ class VRBowlliardsGame {
   }
 
   onLockStrokeStart() {
-    if (!this.isVR || this.gameState === 'ballInHand' || !this.ballsSettled) return;
+    if (!this.isVR || this.gameState === 'ballInHand' || this.gameState === 'gameOver' || !this.ballsSettled) return;
+    if (this.isMultiplayer && !this.isMyTurn) return; 
     this.cueController.lockStrokeDirection();
   }
 
@@ -448,7 +491,6 @@ class VRBowlliardsGame {
 
   setLeftHandedMode(isLeftHanded) {
     this.leftHanded = isLeftHanded;
-    console.log('Left-handed mode:', isLeftHanded ? 'ON' : 'OFF');
   }
 
   onShoot() {}
@@ -459,64 +501,59 @@ class VRBowlliardsGame {
 
   checkBallsSettled() {
     if (this.gameState !== 'shooting') return;
-
     const allSettled = this.poolTable.balls.every((ball) => {
       if (ball.position.y < -0.5 || ball.userData.isPocketed) return true;
       const body = ball.userData.physicsBody;
       return body.velocity.length() < 0.1 && body.angularVelocity.length() < 0.1;
     });
-
     if (allSettled && !this.ballsSettled) {
+      // --- FIX: Add slight delay to ensure pockets are registered ---
       this.ballsSettled = true;
-      setTimeout(() => this.processShot(), 400);
+      setTimeout(() => this.processShot(), 500);
     }
   }
 
-  // --- TRIGGER SHOT (with Turn Check) ---
   takeShot(direction, power, spin = { english: 0, vertical: 0 }) {
-    // STRICT TURN CHECK
-    if (this.isMultiplayer && !this.isMyTurn) {
-      console.log('[TURN CHECK] BLOCKED - Not your turn!');
-      this.showNotification('Not your turn! Wait for opponent to finish.', 2500);
+    console.log("[GAME] takeShot called:", {
+      isMultiplayer: this.isMultiplayer,
+      isMyTurn: this.isMyTurn,
+      gameState: this.gameState,
+      ballsSettled: this.ballsSettled
+    });
+    
+    // Block shots if game is over
+    if (this.gameState === 'gameOver') {
+      console.log("[GAME] BLOCKED: Game is over");
+      this.showNotification('Game Over! Press RESET to play again.', 2500);
       return;
     }
-
-    console.log(
-      '[SHOT] Taking shot - Player:',
-      this.myPlayerName,
-      'Frame:',
-      this.rulesEngine.currentFrame + 1
-    );
-
+    
+    if (this.isMultiplayer && !this.isMyTurn) {
+      console.log("[GAME] BLOCKED: Not your turn");
+      this.showNotification('Not your turn! Wait for opponent.', 2500);
+      return;
+    }
+    
+    console.log("[GAME] Shot ALLOWED - Proceeding");
     this.ballInHand.disable();
-
-    // I am now the authority for this shot
     this.isAuthority = true;
-
-    // Send shot to opponent
     if (this.networkManager && this.isMultiplayer) {
       this.networkManager.sendShot(direction, power, spin);
     }
-
     const wasBreak = this.rulesEngine.isBreakShot();
     this.poolTable.shootCueBall(direction, power, spin);
     this.gameState = 'shooting';
     this.ballsSettled = false;
-
     if (wasBreak) {
       this.breakShotTaken = true;
       this.frameJustStarted = false;
     }
   }
 
-  // --- RECEIVE REMOTE SHOT ---
   executeRemoteShot(direction, power, spin) {
-    console.log('[REMOTE SHOT] Receiving opponent shot');
+    this.showNotification('Opponent is shooting...', 1500);
     this.ballInHand.disable();
-
-    // Opponent is authority, I'm watching
     this.isAuthority = false;
-
     const wasBreak = this.rulesEngine.isBreakShot();
     this.poolTable.shootCueBall(direction, power, spin);
     this.gameState = 'shooting';
@@ -528,6 +565,20 @@ class VRBowlliardsGame {
   }
 
   async processShot() {
+    // Block processing if game is already over
+    if (this.gameState === 'gameOver') {
+      console.log('[PROCESSSHOT] BLOCKED - Game is already over');
+      return;
+    }
+    
+    console.log('[PROCESSSHOT] Starting processShot:', {
+      isMultiplayer: this.isMultiplayer,
+      isMyTurn: this.isMyTurn,
+      myPlayerNumber: this.myPlayerNumber,
+      currentFrame: this.rulesEngine.currentFrame,
+      gameState: this.gameState
+    });
+    
     const pocketedBalls = this.poolTable.getPocketedBalls();
     const cueBallPocketed = this.poolTable.isCueBallPocketed();
     const cueBallHitObject = this.poolTable.cueBallHitObject;
@@ -535,11 +586,14 @@ class VRBowlliardsGame {
     if (this.breakShotTaken && !this.rulesEngine.breakProcessed) {
       this.rulesEngine.processBreak();
       this.breakShotTaken = false;
-
       const scratch = cueBallPocketed;
       const nonScratchFoul = !cueBallHitObject;
       const ballsScored = pocketedBalls.length;
-
+      
+      // CRITICAL: Record break balls for stats tracking (best break, potting average)
+      this.rulesEngine.recordBreakBalls(ballsScored);
+      console.log(`[STATS] Break balls recorded: ${ballsScored} for frame ${this.rulesEngine.currentFrame + 1}`);
+      
       const result = this.rulesEngine.processShot(ballsScored, true);
 
       if (result.isStrike) {
@@ -556,18 +610,15 @@ class VRBowlliardsGame {
         this.gameState = 'ballInHand';
         this.ballInHand.enable(true); 
         if (this.desktopControls) this.desktopControls.orbitControls.enabled = false;
-        
         this.updateScoreboard();
         this.poolTable.resetShotTracking();
         return; 
       } 
-      
       if (ballsScored > 0) {
          this.showNotification(`Break! ${ballsScored} ball(s) pocketed`, 2000);
       } else if (nonScratchFoul) {
          this.showNotification('Foul on break! Play from where it lies.', 2500);
       }
-      
       this.gameState = 'ready';
       this.updateScoreboard();
       this.poolTable.resetShotTracking();
@@ -575,7 +626,6 @@ class VRBowlliardsGame {
     }
 
     if (cueBallPocketed) {
-      // Scratch after break
       const foulResult = this.rulesEngine.processFoulAfterBreak();
       if (foulResult.gameOver) {
          this.showNotification('Foul, game over!', 2000);
@@ -583,25 +633,21 @@ class VRBowlliardsGame {
          this.poolTable.resetShotTracking();
          return;
       }
-      
       if (foulResult.inningComplete && !foulResult.isTenthFrame) {
          this.showNotification('Foul - Frame ended', 2000);
          await this.advanceFrame();
          this.poolTable.resetShotTracking();
          return;
       }
-
       this.poolTable.showCueBall();
       this.gameState = 'ballInHand';
       const isSecondInningNow = (this.rulesEngine.currentInning === 2);
       this.ballInHand.enable(isSecondInningNow); 
-
       if (!this.isVR && this.desktopControls) {
          this.ballInHand.grab(null);
          this.desktopControls.orbitControls.enabled = false;
          this.showNotification('Scratch! Move mouse to place ball.', 2000);
       }
-
       this.poolTable.resetShotTracking();
       return; 
     }
@@ -609,7 +655,6 @@ class VRBowlliardsGame {
     if (!cueBallHitObject) {
         this.showNotification('Foul! Play from where it lies.', 2000);
         const foulResult = this.rulesEngine.processNoHitFoul();
-        
         if (foulResult.gameOver) {
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
@@ -621,7 +666,6 @@ class VRBowlliardsGame {
              this.showNotification('Foul. Second inning!', 2000);
              this.gameState = 'ready';
         }
-        
         this.poolTable.resetShotTracking();
         return;
     }
@@ -632,78 +676,201 @@ class VRBowlliardsGame {
     if (result.isStrike) {
       this.celebrationSystem.celebrateStrike();
       this.showNotification('STRIKE!', 2500);
-      await this.advanceFrame();
+      // In 10th frame, don't advance - need bonus rolls
+      if (!result.isTenthFrame) {
+        await this.advanceFrame();
+      } else {
+        // 10th frame strike - re-rack balls for bonus rolls
+        this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
+        this.poolTable.setupBalls();  // Re-rack for bonus
+        this.updateScoreboard();
+        this.gameState = 'ready';
+        this.ballInHand.enable(true);
+      }
     } else if (result.isSpare) {
       this.celebrationSystem.celebrateSpare();
       this.showNotification('SPARE!', 2500);
-      await this.advanceFrame();
+      // In 10th frame, don't advance - need bonus roll
+      if (!result.isTenthFrame) {
+        await this.advanceFrame();
+      } else {
+        // 10th frame spare - re-rack balls for bonus roll
+        this.showNotification('SPARE! 1 bonus roll coming...', 2500);
+        this.poolTable.setupBalls();  // Re-rack for bonus
+        this.updateScoreboard();
+        this.gameState = 'ready';
+        this.ballInHand.enable(true);
+      }
+    } else if (result.isBonus) {
+      // Handle bonus roll results
+      if (result.gameOver) {
+        this.showNotification('Bonus rolls complete!', 2000);
+        await this.advanceFrame();
+      } else {
+        // More bonus rolls remaining - re-rack
+        this.showNotification('Bonus roll! Keep going...', 1500);
+        this.poolTable.setupBalls();  // Re-rack for next bonus
+        this.updateScoreboard();
+        this.gameState = 'ready';
+        this.ballInHand.enable(true);
+      }
     } else if (result.inningComplete) {
       if (result.inning === 1) {
-        this.showNotification(
-          `First inning: ${result.scored} down. Second inning!`,
-          2000
-        );
+        this.showNotification(`First inning: ${result.scored} down. Second inning!`, 2000);
+        
+        // Update scoreboard immediately after first inning
+        this.updateScoreboard();
+        
+        // Send score update to opponent after first inning (BOTH HOST AND GUEST)
+        console.log('[GAME] First inning complete - Checking if should send:', {
+          isMultiplayer: this.isMultiplayer,
+          hasNetworkManager: !!this.networkManager,
+          isMyTurn: this.isMyTurn,
+          playerNumber: this.myPlayerNumber
+        });
+        
+        if (this.isMultiplayer && this.networkManager && this.isMyTurn) {
+          const myScores = this.rulesEngine.exportScores();
+          console.log('[GAME] ✓ SENDING score update to opponent:', {
+            playerNumber: this.myPlayerNumber,
+            isMyTurn: this.isMyTurn,
+            frame: myScores.currentFrame,
+            inning1: myScores.frames[myScores.currentFrame].inning1,
+            fullScores: JSON.stringify(myScores, null, 2)
+          });
+          this.networkManager.sendScoreUpdate(myScores);
+        } else {
+          console.log('[GAME] ✗ NOT sending score update. Conditions:', {
+            isMultiplayer: this.isMultiplayer,
+            hasNetworkManager: !!this.networkManager,
+            isMyTurn: this.isMyTurn
+          });
+        }
+        
         this.gameState = 'ready';
       } else {
-        this.showNotification(`Open frame: ${result.totalScored} total`, 2000);
-        await this.advanceFrame();
+        // Check if this was a 10th frame open that ends the game
+        if (result.gameOver && result.isTenthFrame) {
+          this.showNotification(`10th Frame Complete: ${result.totalScored} total`, 2000);
+          await this.advanceFrame(); // Will handle game completion
+        } else {
+          this.showNotification(`Open frame: ${result.totalScored} total`, 2000);
+          await this.advanceFrame();
+        }
       }
     } else {
       if (ballsScored > 0) {
         this.showNotification(`${ballsScored} ball(s) pocketed`, 1500);
       }
     }
-
     this.poolTable.resetShotTracking();
     this.updateScoreboard();
-
     if (this.gameState === 'shooting') {
       setTimeout(() => {
-        this.cueController.update(true);
-        this.gameState = 'ready';
+        // Don't reset to ready if game is over
+        if (this.gameState !== 'gameOver') {
+          this.cueController.update(true);
+          this.gameState = 'ready';
+        }
       }, 200);
     }
   }
 
   async advanceFrame() {
-    // MULTIPLAYER: Switch turns after EACH frame
     if (this.isMultiplayer) {
-      // My frame is complete
-      this.isMyTurn = false;
-
-      // Send my scores to opponent
-      if (this.networkManager) {
-        this.networkManager.sendFrameComplete(this.rulesEngine.exportScores());
+      console.log("[GAME] =====  FRAME COMPLETE - ADVANCE FRAME =====");
+      console.log("[GAME] Current state before advancing:", {
+        myPlayerNumber: this.myPlayerNumber,
+        isMyTurn: this.isMyTurn,
+        currentFrame: this.rulesEngine.currentFrame,
+        currentFrameScores: this.rulesEngine.frames[this.rulesEngine.currentFrame]
+      });
+      
+      // CRITICAL FIX: Check if game is complete BEFORE switching turns
+      if (this.rulesEngine.isGameComplete()) {
+        console.log("[GAME] Game is complete - ending game instead of switching turns");
+        const finalScore = this.rulesEngine.getTotalScore();
+        this.gameState = 'gameOver';
+        this.showNotification(`Your game is complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
+        
+        // Export final scores to send to opponent
+        const myScores = this.rulesEngine.exportScores();
+        if (this.networkManager) {
+          console.log("[GAME] ✓ Sending final frameComplete to opponent");
+          this.networkManager.sendFrameComplete(myScores);
+        }
+        
+        this.updateScoreboard();
+        this.checkGameComplete(); // Check if opponent is also done
+        return;
       }
-
-      const frameNum = this.rulesEngine.currentFrame + 1;
-      this.showNotification(
-        `Frame ${frameNum} Complete! Opponent's turn...`,
-        3000
-      );
-
-      // Don't advance my frame yet - wait for opponent
+      
+      // CRITICAL: Export scores BEFORE any state changes
+      const myScores = this.rulesEngine.exportScores();
+      console.log("[GAME] Exporting MY scores to send to opponent:");
+      console.log(JSON.stringify(myScores, null, 2));
+      
+      // Now switch turn and rerack
+      this.isMyTurn = false;
+      this.setupNewFrame(true);
+      
+      // Send scores and table state
+      if (this.networkManager) {
+        console.log("[GAME] ✓ Sending frameComplete to opponent");
+        this.networkManager.sendFrameComplete(myScores);
+        // Wait for balls to settle, then sync the racked state
+        setTimeout(() => {
+          const state = this.poolTable.exportState();
+          this.networkManager.sendTableState(state);
+        }, 300);
+      } else {
+        console.log("[GAME] ✗ No networkManager, cannot send scores!");
+      }
+      
+      this.showNotification(`Frame ${this.rulesEngine.currentFrame + 1} Complete! Opponent's turn...`, 3000);
       this.updateScoreboard();
-      this.gameState = 'waiting';
+      console.log("[GAME] ===== END ADVANCE FRAME =====");
       return;
     }
-
-    // SINGLE PLAYER: Continue as normal
     if (this.rulesEngine.isGameComplete()) {
       const finalScore = this.rulesEngine.getTotalScore();
       this.gameState = 'gameOver';
-      this.showNotification(
-        `Game Over! Score: ${finalScore}. Press RESET button to play again.`,
-        10000
-      );
-
-      let playerName = localStorage.getItem('bowlliards_playerName');
-      if (!playerName || playerName.trim() === '') {
-        playerName = 'Player';
-      }
-
+      this.showNotification(`Game Over! Score: ${finalScore}. Press RESET button.`, 10000);
+      let playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
       await this.leaderboard.addScore(finalScore, playerName);
-
+      
+      // Save game to stats tracker if logged in
+      if (this.statsTracker && this.statsTracker.isLoggedIn) {
+        // Build breaks array in format expected by stats tracker: breaks[frameIndex].breaks[0]
+        const breaksData = this.rulesEngine.breakBalls.map(ballCount => ({
+          breaks: [ballCount]
+        }));
+        
+        const gameData = {
+          score: finalScore,
+          frames: this.rulesEngine.frames.map(f => ({
+            rolls: [
+              f.inning1.scored || 0, 
+              f.inning2.scored || 0, 
+              ...(f.bonus || [])
+            ].filter(r => r !== undefined)
+          })),
+          breaks: breaksData,  // Now properly tracks break balls per frame
+          frameScores: this.rulesEngine.frames.map(f => f.score || 0)
+        };
+        
+        console.log('[STATS] Saving game with break data:', breaksData);
+        await this.statsTracker.saveGame(gameData);
+        console.log('[GAME] Game saved to stats tracker');
+        
+        // Refresh personal stats display
+        await this.statsTracker.refreshStats();
+        const stats = this.statsTracker.getMyStats();
+        if (this.personalStatsDisplay) {
+          this.personalStatsDisplay.update(stats, playerName);
+        }
+      }
+      
       this.updateScoreboard();
       this.leaderboardDisplay.update(this.leaderboard);
     } else {
@@ -711,73 +878,153 @@ class VRBowlliardsGame {
       this.setupNewFrame(true);
       this.gameState = 'ready';
       this.ballInHand.enable(true);
-
-      this.showNotification(
-        'Frame ' + (this.rulesEngine.currentFrame + 1) + ' Ready',
-        2000
-      );
+      this.showNotification('Frame ' + (this.rulesEngine.currentFrame + 1) + ' Ready', 2000);
     }
   }
 
-  // Called when opponent finishes their frame
   onOpponentFrameComplete() {
-    console.log('[OPPONENT] Frame complete, my turn now');
-
-    // Now it's my turn
-    this.isMyTurn = true;
-
-    // Advance my frame
+    console.log("[GAME] Opponent frame complete - My Turn Now");
+    
+    // Check if I should advance my frame number (sync logic)
+    const currentFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
+    const isMyFrameDone = currentFrameData.isStrike || currentFrameData.isOpen || 
+                          (currentFrameData.inning1.complete && currentFrameData.inning2.complete);
+    
+    console.log("[GAME] My current frame status:", {
+      frame: this.rulesEngine.currentFrame,
+      isMyFrameDone,
+      inning1Complete: currentFrameData.inning1.complete,
+      inning2Complete: currentFrameData.inning2.complete,
+      inning1Scored: currentFrameData.inning1.scored,
+      inning2Scored: currentFrameData.inning2.scored
+    });
+    
+    if (isMyFrameDone && !this.rulesEngine.isGameComplete()) {
+        console.log("[GAME] Advancing my frame number");
+        this.rulesEngine.nextFrame();
+    }
+    
     if (!this.rulesEngine.isGameComplete()) {
-      this.rulesEngine.nextFrame();
+      console.log("[GAME] Setting my turn to TRUE and reracking");
+      
+      // CRITICAL FIX: Set turn to TRUE BEFORE setupNewFrame so controls are enabled
+      this.isMyTurn = true;
+      
+      // Rerack balls locally (opponent's racked state will sync via tableStateUpdate)
       this.setupNewFrame(true);
+      
+      // Ensure game state is ready and controls are enabled
       this.gameState = 'ready';
       this.ballInHand.enable(true);
-
-      const frameNum = this.rulesEngine.currentFrame + 1;
-      this.showNotification(`Your turn! Frame ${frameNum}`, 2500);
+      
+      // Play "It is your turn" audio notification
+      if (this.soundManager) {
+        this.soundManager.playSound('yourTurn', null, 1.0);
+      }
+      
+      console.log("[GAME] Game state after turn handoff:", {
+        isMyTurn: this.isMyTurn,
+        gameState: this.gameState,
+        ballInHandEnabled: this.ballInHand.enabled
+      });
+      
+      this.showNotification(`Your turn! Frame ${this.rulesEngine.currentFrame + 1}`, 2500);
     } else {
-      // I'm done with all 10 frames, check winner
       this.checkGameComplete();
     }
-
     this.updateScoreboard();
   }
 
   checkGameComplete() {
     if (!this.isMultiplayer) return;
-
     const myComplete = this.rulesEngine.isGameComplete();
-    const oppComplete =
-      this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
-
+    const oppComplete = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
     if (myComplete && oppComplete) {
       const myScore = this.rulesEngine.getTotalScore();
       const oppScore = this.remoteRulesEngine.getTotalScore();
-
+      let gameResult = null;
       if (myScore > oppScore) {
         this.showNotification(`YOU WIN! ${myScore} vs ${oppScore}`, 5000);
+        gameResult = 'win';
       } else if (oppScore > myScore) {
         this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore}`, 5000);
+        gameResult = 'loss';
       } else {
         this.showNotification(`TIE GAME! ${myScore} vs ${oppScore}`, 5000);
+        gameResult = 'tie';
       }
-
       this.gameState = 'gameOver';
+      
+      // Save multiplayer game to stats tracker if logged in (with game result)
+      this.saveMultiplayerGame(myScore, gameResult);
+    }
+  }
+  
+  // Save multiplayer game data to stats tracker
+  async saveMultiplayerGame(finalScore, gameResult = null) {
+    if (!this.statsTracker || !this.statsTracker.isLoggedIn) {
+      console.log('[STATS] Not logged in - multiplayer game not saved to stats');
+      return;
+    }
+    
+    // Build breaks array in format expected by stats tracker: breaks[frameIndex].breaks[0]
+    const breaksData = this.rulesEngine.breakBalls.map(ballCount => ({
+      breaks: [ballCount]
+    }));
+    
+    const gameData = {
+      score: finalScore,
+      frames: this.rulesEngine.frames.map(f => ({
+        rolls: [
+          f.inning1.scored || 0, 
+          f.inning2.scored || 0, 
+          ...(f.bonus || [])
+        ].filter(r => r !== undefined)
+      })),
+      breaks: breaksData,  // Tracks break balls per frame
+      frameScores: this.rulesEngine.frames.map(f => f.score || 0),
+      isMultiplayer: true,
+      opponentScore: this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 0,
+      gameResult: gameResult  // 'win', 'loss', 'tie'
+    };
+    
+    console.log('[STATS] Saving multiplayer game with break data:', breaksData);
+    await this.statsTracker.saveGame(gameData);
+    console.log('[GAME] Multiplayer game saved to stats tracker');
+    
+    // Refresh personal stats display
+    await this.statsTracker.refreshStats();
+    const stats = this.statsTracker.getMyStats();
+    const playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
+    if (this.personalStatsDisplay) {
+      this.personalStatsDisplay.update(stats, playerName);
     }
   }
 
-  // --- HELPER: Update Scoreboard (Single or Multi) ---
   updateScoreboard() {
-    if (this.isMultiplayer && this.scoreboard.mode === 'multi') {
-      this.scoreboard.update(
-        this.rulesEngine,
-        this.remoteRulesEngine,
-        this.myPlayerName,
-        this.remotePlayerName,
-        this.isMyTurn
+    if (this.isMultiplayer) {
+      // Ensure remoteRulesEngine exists
+      if (!this.remoteRulesEngine) {
+        console.warn('[SCOREBOARD] remoteRulesEngine is null, creating new one');
+        this.remoteRulesEngine = new BowlliardsRulesEngine();
+      }
+      
+      if (this.scoreboard.mode !== 'multi') this.scoreboard.setupBoard('multi');
+      
+      console.log('[GAME] Updating multiplayer scoreboard:', {
+        myFrame: this.rulesEngine.currentFrame,
+        oppFrame: this.remoteRulesEngine.currentFrame,
+        myScore: this.rulesEngine.getTotalScore(),
+        oppScore: this.remoteRulesEngine.getTotalScore()
+      });
+      
+      this.scoreboard.updateScore(
+        this.rulesEngine, this.remoteRulesEngine, 
+        this.myPlayerName, this.remotePlayerName, this.isMyTurn
       );
     } else {
-      this.scoreboard.update(this.rulesEngine, null, null, null, null);
+      if (this.scoreboard.mode !== 'single') this.scoreboard.setupBoard('single');
+      this.scoreboard.updateScore(this.rulesEngine, null, null, null, null);
     }
   }
 
@@ -802,34 +1049,42 @@ class VRBowlliardsGame {
     notification.textContent = message;
     notification.style.display = 'block';
     clearTimeout(this._notifTimeout);
-    this._notifTimeout = setTimeout(() => {
-      notification.style.display = 'none';
-    }, duration || 2000);
+    this._notifTimeout = setTimeout(() => { notification.style.display = 'none'; }, duration || 2000);
   }
 
   startNewGame() {
-    const wasGameInProgress = this.rulesEngine && !this.rulesEngine.isGameComplete();
-
+    // Block reset in multiplayer mode
+    if (this.isMultiplayer) {
+      this.showNotification('Reset disabled in multiplayer mode', 2500);
+      console.log('[GAME] Reset blocked - multiplayer game in progress');
+      return;
+    }
+    
     this.rulesEngine = new BowlliardsRulesEngine();
-    this.poolTable.resetTable?.();
+    this.poolTable.setupBalls();  // Reset balls on table
+    this.poolTable.resetShotTracking();  // Clear any previous shot state
     this.breakShotTaken = false;
     this.currentInning = 1;
     this.frameJustStarted = true;
     this.ballsSettled = true;
     this.gameState = 'ready';
     this.ballInHand.enable(true);
-
+    
+    // Properly redraw scoreboard
+    this.scoreboard.setupBoard('single');
     this.scoreboard.drawEmptyScore();
+    this.updateScoreboard();
     this.leaderboardDisplay.update(this.leaderboard);
-
-    if (!wasGameInProgress || this.gameState === 'gameOver') {
-      this.showNotification('New game! Ready to Break.', 2000);
+    
+    // Update cue controller
+    if (this.cueController) {
+      this.cueController.update(true);
     }
+
+    this.showNotification('New game! Ready to Break.', 2000);
   }
 
-  resetGame() {
-    this.startNewGame();
-  }
+  resetGame() { this.startNewGame(); }
 
   onWindowResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -838,36 +1093,33 @@ class VRBowlliardsGame {
   }
 
   animate() {
-    const delta = this.clock.getDelta();
+    const p = this.camera.position;
+    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.z)) return; 
 
+    const delta = this.clock.getDelta();
     this.physics.step(delta);
+    this.poolTable.update(delta);
     
-    this.poolTable.update(delta); 
+    // Only enforce waiting state during opponent's shots, not constantly
+    if (this.isMultiplayer && !this.isMyTurn && this.gameState === 'shooting') {
+        this.gameState = 'waiting';
+        this.ballInHand.disable();
+        if (this.cueController) this.cueController.updateDesktop(false);
+    }
     
     this.cueController.update(this.ballsSettled);
     this.ballInHand.update();
     this.checkBallsSettled();
     this.updateLocomotion(delta);
-    
-    if (this.celebrationSystem) {
-        this.celebrationSystem.update(delta);
-    }
-
-    if (this.settingsPanel) {
-      this.settingsPanel.update();
-    }
-    
-    // --- SYNC PHYSICS & AVATAR ---
+    if (this.celebrationSystem) this.celebrationSystem.update(delta);
+    if (this.settingsPanel) this.settingsPanel.update();
     if (this.networkManager) {
         this.networkManager.sendAvatarUpdate();
-        
-        // Send physics state when I'm the authority
         if (this.isAuthority && !this.ballsSettled && this.gameState === 'shooting') {
              const state = this.poolTable.exportState();
              this.networkManager.sendTableState(state);
         }
     }
-
     this.renderer.render(this.scene, this.camera);
   }
 }

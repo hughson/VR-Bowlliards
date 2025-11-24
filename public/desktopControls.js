@@ -14,6 +14,7 @@ export class DesktopControls {
     this.orbitControls.dampingFactor = 0.1;
     this.orbitControls.target.set(0, 1, 0);
     this.orbitControls.enabled = true;
+    this.orbitControls.enableZoom = false; // Disable zoom to prevent scroll wheel issues
 
     this.moveState = {
       forward: 0,
@@ -25,7 +26,7 @@ export class DesktopControls {
     this.aimPoint = new THREE.Vector3();
     this.charging = false;
     this.power = 0;
-    this.maxPower = 1.0;
+    this.maxPower = 1.2;
     this.chargeRate = 0.8; 
     
     this.raycaster = new THREE.Raycaster();

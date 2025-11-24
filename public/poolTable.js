@@ -285,11 +285,70 @@ export class PoolTable {
   }
 
   createRailPhysics() {
-    const mat = this.physics.cushionMaterial; const y = 0.95 + 0.04; const off = 0.6075;
-    const add = (w,h,d,x,z,n) => { const b = new CANNON.Body({ mass: 0, material: mat, type: CANNON.Body.STATIC }); b.addShape(new CANNON.Box(new CANNON.Vec3(w/2,h/2,d/2))); b.position.set(x,y,z); b.userData={isCushion:true,name:n}; this.physics.world.addBody(b); };
-    add(1.0, 0.08, 0.04, -off, -0.615, 'top-left'); add(1.0, 0.08, 0.04, off, -0.615, 'top-right');
-    add(1.0, 0.08, 0.04, -off, 0.615, 'bottom-left'); add(1.0, 0.08, 0.04, off, 0.615, 'bottom-right');
-    add(0.04, 0.08, 1.0, -1.25, 0, 'left'); add(0.04, 0.08, 1.0, 1.25, 0, 'right');
+    // Cushion physics - extended to reach closer to pockets
+    const mat = this.physics.cushionMaterial;
+    const y = 0.95 + 0.04; // Height of cushions
+    
+    // Pocket positions and gaps
+    const cornerPocketRadius = 0.052;
+    const sidePocketRadius = 0.055;
+    const pocketGap = 0.01; // Small gap to leave around pocket opening
+    
+    // Helper to add cushion bodies
+    const add = (w, h, d, x, z, n) => {
+      const b = new CANNON.Body({ 
+        mass: 0, 
+        material: mat, 
+        type: CANNON.Body.STATIC 
+      });
+      b.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2)));
+      b.position.set(x, y, z);
+      b.userData = { isCushion: true, name: n };
+      this.physics.world.addBody(b);
+    };
+    
+    // TOP RAIL (z = -0.615)
+    // Left segment: from left corner pocket to side pocket
+    const topZ = -0.615;
+    const topLeftStart = -1.225 + cornerPocketRadius + pocketGap; // Start after corner pocket
+    const topLeftEnd = -sidePocketRadius - pocketGap; // End before side pocket
+    const topLeftWidth = topLeftEnd - topLeftStart;
+    const topLeftCenter = (topLeftStart + topLeftEnd) / 2;
+    add(topLeftWidth, 0.08, 0.04, topLeftCenter, topZ, 'top-left');
+    
+    // Right segment: from side pocket to right corner pocket
+    const topRightStart = sidePocketRadius + pocketGap;
+    const topRightEnd = 1.225 - cornerPocketRadius - pocketGap;
+    const topRightWidth = topRightEnd - topRightStart;
+    const topRightCenter = (topRightStart + topRightEnd) / 2;
+    add(topRightWidth, 0.08, 0.04, topRightCenter, topZ, 'top-right');
+    
+    // BOTTOM RAIL (z = 0.615)
+    const bottomZ = 0.615;
+    // Left segment
+    const bottomLeftWidth = topLeftWidth;
+    const bottomLeftCenter = topLeftCenter;
+    add(bottomLeftWidth, 0.08, 0.04, bottomLeftCenter, bottomZ, 'bottom-left');
+    
+    // Right segment
+    const bottomRightWidth = topRightWidth;
+    const bottomRightCenter = topRightCenter;
+    add(bottomRightWidth, 0.08, 0.04, bottomRightCenter, bottomZ, 'bottom-right');
+    
+    // LEFT RAIL (x = -1.25)
+    const leftX = -1.25;
+    // Top segment: from top corner to bottom corner
+    const leftStart = -0.59 + cornerPocketRadius + pocketGap;
+    const leftEnd = 0.59 - cornerPocketRadius - pocketGap;
+    const leftDepth = leftEnd - leftStart;
+    const leftCenter = (leftStart + leftEnd) / 2;
+    add(0.04, 0.08, leftDepth, leftX, leftCenter, 'left');
+    
+    // RIGHT RAIL (x = 1.25)
+    const rightX = 1.25;
+    const rightDepth = leftDepth;
+    const rightCenter = leftCenter;
+    add(0.04, 0.08, rightDepth, rightX, rightCenter, 'right');
   }
 
   setupBalls() {
@@ -303,11 +362,26 @@ export class PoolTable {
   setupCollisionTracking() {
     this.physics.world.addEventListener('beginContact', (e) => {
       const v = e.bodyA.velocity.distanceTo(e.bodyB.velocity);
-      if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.collisionFilterGroup === 1 && this.soundManager) {
+      
+      // Check for ball-to-cushion collision FIRST (priority)
+      let isCushionCollision = false;
+      let ballBody = null;
+      
+      if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.userData?.isCushion) {
+        isCushionCollision = true;
+        ballBody = e.bodyA;
+      } else if (e.bodyB.collisionFilterGroup === 1 && e.bodyA.userData?.isCushion) {
+        isCushionCollision = true;
+        ballBody = e.bodyB;
+      }
+      
+      if (isCushionCollision && ballBody && this.soundManager) {
+        // Play ONLY cushion sound for cushion collisions
+        this.soundManager.playSound('cushionHit', new THREE.Vector3(ballBody.position.x, ballBody.position.y, ballBody.position.z), v * 1.5);
+      } else if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.collisionFilterGroup === 1 && this.soundManager) {
+        // Play ball-to-ball sound ONLY if it's NOT a cushion collision
         this.soundManager.playSound('ballHit', new THREE.Vector3((e.bodyA.position.x+e.bodyB.position.x)/2, (e.bodyA.position.y+e.bodyB.position.y)/2, (e.bodyA.position.z+e.bodyB.position.z)/2), v);
       }
-      let bb = null; if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.userData?.isCushion) bb = e.bodyA; else if (e.bodyB.collisionFilterGroup === 1 && e.bodyA.userData?.isCushion) bb = e.bodyB;
-      if (bb && this.soundManager) this.soundManager.playSound('cushionHit', new THREE.Vector3(bb.position.x, bb.position.y, bb.position.z), v * 1.5);
 
       const cb = this.balls[0]?.userData.physicsBody;
       if (cb && (e.bodyA === cb || e.bodyB === cb)) {
@@ -346,7 +420,8 @@ export class PoolTable {
     if (!cb || !s || !n) return;
     const v = cb.velocity; const sp = Math.sqrt(v.x*v.x + v.z*v.z); if (sp < 0.5) return;
     const es = s.english * sp * 0.5;
-    if (n === 'left') v.z += es; else if (n === 'right') v.z -= es; else if (n.includes('top')) v.x += es; else if (n.includes('bottom')) v.x -= es;
+    // Inverted signs to fix spin direction off cushions
+    if (n === 'left') v.z -= es; else if (n === 'right') v.z += es; else if (n.includes('top')) v.x -= es; else if (n.includes('bottom')) v.x += es;
   }
   
   getCueBall() { return this.balls[0]; }
@@ -375,7 +450,7 @@ export class PoolTable {
     const smesh = new THREE.Mesh(sg, sm); smesh.rotation.x = -Math.PI / 2; smesh.renderOrder = 3; b.userData.shadowMesh = smesh; this.scene.add(smesh);
     
     const shape = new CANNON.Sphere(r);
-    const body = new CANNON.Body({ mass: 0.17, shape: shape, material: this.physics.ballMaterial, linearDamping: 0.38, angularDamping: 0.38, ccdSpeedThreshold: 0.1, ccdIterations: 10 });
+    const body = new CANNON.Body({ mass: 0.17, shape: shape, material: this.physics.ballMaterial, linearDamping: 0.19, angularDamping: 0.19, ccdSpeedThreshold: 0.1, ccdIterations: 10 });
     body.position.set(x, this.tableHeight + r, z); body.collisionFilterGroup = 1; body.collisionFilterMask = -1;
     this.physics.world.addBody(body); b.userData.physicsBody = body; b.userData.ballNumber = number;
     this.scene.add(b); this.balls.push(b);
@@ -392,7 +467,7 @@ export class PoolTable {
     b.velocity.copy(new CANNON.Vec3(nd.x * f, 0, nd.z * f));
     b.userData = b.userData || {}; b.userData.spin = { vertical: spin ? spin.vertical : 0, english: spin ? spin.english : 0, power: power };
     
-    const r = 0.028; const rv = new THREE.Vector3(-nd.z, 0, nd.x).normalize(); const rs = f / r * 0.3; 
+    const r = 0.028; const rv = new THREE.Vector3(-nd.z, 0, nd.x).normalize(); const rs = f / r * 0.10; // Reduced from 0.3 to 0.10 for more slide/less roll
     if (spin && (Math.abs(spin.vertical) > 0.05 || Math.abs(spin.english) > 0.05)) {
       const ss = power * 40.0; const va = new THREE.Vector3(-nd.z, 0, nd.x).normalize();
       b.angularVelocity.set(rv.x * rs + va.x * spin.vertical * ss, 0, rv.z * rs + va.z * spin.vertical * ss);
@@ -484,8 +559,25 @@ export class PoolTable {
       if (ball.position.y < -0.5 || ball.userData.isPocketed) return;
       const b = ball.userData.physicsBody;
       const v = b.velocity; const w = b.angularVelocity; const s = v.length(); const slip = Math.abs(s - w.length() * 0.028);
-      if (slip > 0.1) b.linearDamping = 0.55; else b.linearDamping = 0.25;
-      if (s < 0.08) { b.linearDamping = 0.98; b.angularDamping = 0.98; } else { b.angularDamping = 0.38; }
+      
+      // Progressive damping that increases as ball slows down
+      if (s < 0.08) {
+        // Abrupt stop at very low speeds
+        b.linearDamping = 0.98; 
+        b.angularDamping = 0.98;
+      } else if (s < 0.5) {
+        // Gentle damping when slowing down (0.08 to 0.5 speed) - reduced to prevent cushion sticking
+        b.linearDamping = 0.20;
+        b.angularDamping = 0.20;
+      } else if (s < 1.5) {
+        // Light damping at medium speeds (0.5 to 1.5)
+        b.linearDamping = 0.22;
+        b.angularDamping = 0.20;
+      } else {
+        // Low damping for fast rolling or skidding
+        if (slip > 0.1) b.linearDamping = 0.28; else b.linearDamping = 0.13;
+        b.angularDamping = 0.19;
+      }
       if (ball.userData.ballNumber === 0) b.angularVelocity.y = 0; 
       ball.position.copy(b.position); ball.quaternion.copy(b.quaternion);
       if (ball.userData.shadowMesh) { ball.userData.shadowMesh.position.set(ball.position.x, this.tableHeight, ball.position.z); }

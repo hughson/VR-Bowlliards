@@ -56,60 +56,118 @@ export class NetworkManager {
       console.error('[NETWORK] Connection error:', err);
     });
 
-    // Server says: you joined a room, here's your player number
-    this.socket.on('roomJoined', (data) => {
-      console.log('[NETWORK] Room Joined. Player Number:', data.playerNumber);
+    // NEW: Server assigns player number automatically
+    this.socket.on('playerAssignment', (data) => {
+      console.log('[NETWORK] ===== PLAYER ASSIGNMENT =====');
+      console.log('[NETWORK] Assigned Player Number:', data.playerNumber);
+      console.log('[NETWORK] Room Code:', data.roomCode);
+      
       this.game.myPlayerNumber = data.playerNumber;
-
-      if (data.playerNumber === 2) {
-        this.game.isMyTurn = false;
-        this.game.showNotification('You are Player 2. Waiting for Player 1...', 3000);
-      } else {
-        this.game.isMyTurn = true;
-        this.game.showNotification('You are Player 1. Your turn!', 2000);
+      this.roomCode = data.roomCode;
+      
+      // Player 1 (first to join) is host and goes first
+      const isMyTurn = (data.playerNumber === 1);
+      console.log('[NETWORK] My Turn:', isMyTurn ? 'YES (I GO FIRST)' : 'NO (WAITING)');
+      
+      if (this.game.setTurnState) {
+        this.game.setTurnState(isMyTurn);
       }
-
-      this.game.updateScoreboard();
+      
+      const roleText = data.playerNumber === 1 ? 'HOST (Player 1)' : 'GUEST (Player 2)';
+      this.game.showNotification(`You are ${roleText}. ${isMyTurn ? 'Your turn!' : 'Waiting for opponent...'}`, 3000);
+      console.log('[NETWORK] ===== END PLAYER ASSIGNMENT =====');
     });
 
-    // Host gets notified when the second player joins
-    this.socket.on('playerJoined', (id) => {
-      console.log('[NETWORK] Opponent joined:', id);
+    // Room is full - cannot join
+    this.socket.on('roomFull', () => {
+      console.log('[NETWORK] Room is full!');
+      this.game.showNotification('Room is full! Only 2 players allowed.', 5000);
+    });
+
+    // NEW: Waiting for opponent in public match
+    this.socket.on('waitingForOpponent', (data) => {
+      console.log('[NETWORK] Waiting for opponent in room:', data.roomCode);
+      this.roomCode = data.roomCode;
+      this.game.showNotification('Waiting for opponent to join...', 10000);
+      
+      // Show cancel button if available
+      if (window.showCancelButton) {
+        window.showCancelButton();
+      }
+    });
+    
+    // NEW: Matchmaking canceled
+    this.socket.on('matchmakingCanceled', () => {
+      console.log('[NETWORK] Matchmaking canceled');
+      this.roomCode = null;
+      this.game.isMultiplayer = false;
+      this.game.showNotification('Matchmaking canceled', 2000);
+      
+      // Hide cancel button and show lobby
+      if (window.hideCancelButton) {
+        window.hideCancelButton();
+      }
+      if (window.showLobby) {
+        window.showLobby();
+      }
+    });
+    
+    // NEW: Player count update
+    this.socket.on('playerCount', (data) => {
+      console.log('[NETWORK] Players online:', data.count);
+      if (window.updatePlayerCount) {
+        window.updatePlayerCount(data.count);
+      }
+    });
+
+    // Game ready - both players connected
+    this.socket.on('gameReady', (data) => {
+      console.log('[NETWORK] ===== GAME READY =====');
+      console.log('[NETWORK] Both players connected!');
+      console.log('[NETWORK] Player 1:', data.player1);
+      console.log('[NETWORK] Player 2:', data.player2);
+      
       this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+      this.game.gameStarted = true;  // Mark game as actually started
+      this.game.showNotification('Both players connected! Game starting...', 3000);
+      
+      // Play "It is your turn" sound for Player 1 now that game has started
+      if (this.game.myPlayerNumber === 1 && this.game.soundManager) {
+        this.game.soundManager.playSound('yourTurn', null, 1.0);
       }
+      
+      console.log('[NETWORK] ===== END GAME READY =====');
+    });
 
-      if (this.game.scoreboard) {
-        this.game.scoreboard.setupBoard('multi');
-        this.game.updateScoreboard();
-      }
+    // DEPRECATED: Old roomJoined handler (kept for backwards compatibility)
+    this.socket.on('roomJoined', (data) => {
+      console.log('[NETWORK] [DEPRECATED] Old roomJoined event received');
+      console.log('[NETWORK] Use playerAssignment instead');
+    });
 
-      this.game.showNotification('Opponent Connected! Game Starting...', 3000);
+    // Opponent joined/left notifications
+    this.socket.on('playerJoined', (data) => {
+      console.log('[NETWORK] Player joined room:', data);
+      const playerText = data.playerNumber === 1 ? 'Player 1 (Host)' : 'Player 2 (Guest)';
+      this.game.showNotification(`${playerText} connected!`, 2000);
+    });
+
+    this.socket.on('opponentLeft', (data) => {
+      console.log('[NETWORK] Opponent left (Player', data.playerNumber, ')');
+      this.game.showNotification('Opponent disconnected!', 5000);
+      this.game.isMultiplayer = false;
     });
 
     // Opponent avatar movement
     this.socket.on('opponentMoved', (data) => {
       this.ghostGroup.visible = true;
-
       this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
-      this.ghostHead.quaternion.set(
-        data.head.qx,
-        data.head.qy,
-        data.head.qz,
-        data.head.qw
-      );
+      this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
 
       if (data.hand1) {
         this.ghostHand1.visible = true;
         this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-        this.ghostHand1.quaternion.set(
-          data.hand1.qx,
-          data.hand1.qy,
-          data.hand1.qz,
-          data.hand1.qw
-        );
+        this.ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
       } else {
         this.ghostHand1.visible = false;
       }
@@ -117,12 +175,7 @@ export class NetworkManager {
       if (data.hand2) {
         this.ghostHand2.visible = true;
         this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-        this.ghostHand2.quaternion.set(
-          data.hand2.qx,
-          data.hand2.qy,
-          data.hand2.qz,
-          data.hand2.qw
-        );
+        this.ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
       } else {
         this.ghostHand2.visible = false;
       }
@@ -132,7 +185,6 @@ export class NetworkManager {
     this.socket.on('opponentShot', (data) => {
       console.log('[NETWORK] RX: Opponent Shot');
       this.game.showNotification('Opponent is shooting...', 1500);
-
       const direction = new THREE.Vector3(data.dir.x, data.dir.y, data.dir.z);
       this.game.executeRemoteShot(direction, data.power, data.spin);
     });
@@ -146,25 +198,91 @@ export class NetworkManager {
 
     // Opponent finished their frame
     this.socket.on('opponentFrameComplete', (scoresData) => {
-      console.log('[NETWORK] Opponent frame complete');
+      console.log('[NETWORK] ===== OPPONENT FRAME COMPLETE RECEIVED =====');
+      console.log('[NETWORK] Received scores:', JSON.stringify(scoresData, null, 2));
+      console.log('[NETWORK] My player info:', {
+        myPlayerNumber: this.game.myPlayerNumber,
+        isMyTurn: this.game.isMyTurn
+      });
+      
       if (this.game.remoteRulesEngine && scoresData) {
+        console.log('[NETWORK] Before import - Remote engine state:', {
+          currentFrame: this.game.remoteRulesEngine.currentFrame,
+          frame0Inning1: this.game.remoteRulesEngine.frames[0].inning1,
+          frame0Inning2: this.game.remoteRulesEngine.frames[0].inning2
+        });
+        
         this.game.remoteRulesEngine.importScores(scoresData);
+        
+        console.log('[NETWORK] After import - Remote engine state:', {
+          currentFrame: this.game.remoteRulesEngine.currentFrame,
+          frame0Inning1: this.game.remoteRulesEngine.frames[0].inning1,
+          frame0Inning2: this.game.remoteRulesEngine.frames[0].inning2,
+          totalScore: this.game.remoteRulesEngine.getTotalScore()
+        });
+      } else {
+        console.log('[NETWORK] ✗ Cannot import scores:', {
+          hasRemoteEngine: !!this.game.remoteRulesEngine,
+          hasScoresData: !!scoresData
+        });
       }
+      
       this.game.onOpponentFrameComplete();
+      this.game.updateScoreboard(); // Force scoreboard update after importing scores
       this.game.checkGameComplete();
+      console.log('[NETWORK] ===== END OPPONENT FRAME COMPLETE =====');
     });
 
-    // Server announcing whose turn it is (if you use this on backend)
-    this.socket.on('turnChanged', (data) => {
-      this.game.isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
-
-      if (this.game.isMyTurn) {
-        this.game.showNotification('Your Turn!', 2000);
+    // NEW: Opponent score update (after each inning)
+    this.socket.on('opponentScoreUpdate', (scoresData) => {
+      console.log('[NETWORK] ===== OPPONENT SCORE UPDATE RECEIVED =====');
+      console.log('[NETWORK] Received scores:', JSON.stringify(scoresData, null, 2));
+      console.log('[NETWORK] My player info:', {
+        myPlayerNumber: this.game.myPlayerNumber,
+        isMyTurn: this.game.isMyTurn
+      });
+      
+      if (this.game.remoteRulesEngine && scoresData) {
+        console.log('[NETWORK] Before import - Remote engine state:', {
+          currentFrame: this.game.remoteRulesEngine.currentFrame,
+          frame0: this.game.remoteRulesEngine.frames[0]
+        });
+        
+        this.game.remoteRulesEngine.importScores(scoresData);
+        
+        console.log('[NETWORK] After import - Remote engine state:', {
+          currentFrame: this.game.remoteRulesEngine.currentFrame,
+          frame0: this.game.remoteRulesEngine.frames[0],
+          totalScore: this.game.remoteRulesEngine.getTotalScore()
+        });
+        
+        this.game.updateScoreboard(); // Update scoreboard immediately
+        console.log('[NETWORK] ✓ Scoreboard updated with opponent progress');
       } else {
-        this.game.showNotification("Opponent's Turn", 2000);
+        console.log('[NETWORK] ✗ Cannot import scores:', {
+          hasRemoteEngine: !!this.game.remoteRulesEngine,
+          hasScoresData: !!scoresData
+        });
       }
+      console.log('[NETWORK] ===== END OPPONENT SCORE UPDATE =====');
+    });
 
-      this.game.updateScoreboard();
+    // Server announcing whose turn it is
+    this.socket.on('turnChanged', (data) => {
+      console.log('[NETWORK] ===== TURN CHANGED =====');
+      console.log('[NETWORK] Server says current player is:', data.currentPlayer);
+      console.log('[NETWORK] My player number is:', this.game.myPlayerNumber);
+      
+      const isMyTurn = (data.currentPlayer === this.game.myPlayerNumber);
+      console.log('[NETWORK] Is it my turn?', isMyTurn ? 'YES' : 'NO');
+      
+      if (this.game.setTurnState) {
+        this.game.setTurnState(isMyTurn);
+        console.log('[NETWORK] ✓ Turn state updated');
+      } else {
+        console.log('[NETWORK] ✗ setTurnState not available!');
+      }
+      console.log('[NETWORK] ===== END TURN CHANGED =====');
     });
 
     this.socket.on('disconnect', () => {
@@ -183,7 +301,7 @@ export class NetworkManager {
     this.roomCode = roomCode;
     console.log('[NETWORK] Joining room:', roomCode);
     
-    // As soon as we attempt to join a room, treat this client as multiplayer.
+    // Setup multiplayer mode
     if (this.game) {
       this.game.isMultiplayer = true;
 
@@ -193,18 +311,50 @@ export class NetworkManager {
 
       if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
         this.game.scoreboard.setupBoard('multi');
-        this.game.updateScoreboard();
       }
 
-      console.log(
-        '[NETWORK] joinRoom -> Multiplayer ON. myPlayerNumber =',
-        this.game.myPlayerNumber,
-        'isMyTurn =',
-        this.game.isMyTurn
-      );
+      console.log('[NETWORK] Waiting for server to assign player number...');
     }
 
     this.socket.emit('joinRoom', roomCode);
+  }
+  
+  // NEW: Join public matchmaking queue
+  joinPublicMatch() {
+    if (!this.socket || !this.isConnected) {
+      this.connect();
+      setTimeout(() => this.joinPublicMatch(), 500);
+      return;
+    }
+    
+    console.log('[NETWORK] Joining public matchmaking...');
+    this.game.showNotification('Finding opponent...', 2000);
+    
+    // Setup multiplayer mode
+    if (this.game) {
+      this.game.isMultiplayer = true;
+
+      if (!this.game.remoteRulesEngine) {
+        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+      }
+
+      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+        this.game.scoreboard.setupBoard('multi');
+      }
+
+      console.log('[NETWORK] Waiting for matchmaking...');
+    }
+
+    // Emit to server to find/create public room
+    this.socket.emit('joinPublicMatch');
+  }
+  
+  // NEW: Cancel public matchmaking
+  cancelMatchmaking() {
+    if (!this.socket || !this.isConnected) return;
+    
+    console.log('[NETWORK] Canceling matchmaking...');
+    this.socket.emit('cancelMatchmaking');
   }
   
   handleVRStart() {
@@ -273,11 +423,19 @@ export class NetworkManager {
     this.socket.emit('tableStateUpdate', { roomCode: this.roomCode, balls: ballsData });
   }
 
-  // --- SEND FRAME COMPLETE ---
   sendFrameComplete(scoresData) {
     if (!this.isConnected || !this.roomCode) return;
     console.log('[NETWORK] Sending frame complete');
     this.socket.emit('frameComplete', { 
+      roomCode: this.roomCode, 
+      scores: scoresData 
+    });
+  }
+
+  sendScoreUpdate(scoresData) {
+    if (!this.isConnected || !this.roomCode) return;
+    console.log('[NETWORK] Sending score update (inning complete)');
+    this.socket.emit('scoreUpdate', { 
       roomCode: this.roomCode, 
       scores: scoresData 
     });

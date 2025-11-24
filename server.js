@@ -11,10 +11,83 @@ const io = new Server(server, {
 // Track rooms and player assignments
 const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2 }
 
+// Track available public rooms for matchmaking
+const publicRooms = new Map(); // roomCode -> { player1: socketId, createdAt: timestamp }
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
+  
+  // Broadcast updated player count to all clients
+  io.emit('playerCount', { count: io.engine.clientsCount });
 
+  // ============================================
+  // PUBLIC MATCHMAKING
+  // ============================================
+  socket.on('joinPublicMatch', () => {
+    console.log('[PUBLIC] Matchmaking request from:', socket.id);
+    
+    // Find first available public room with 1 player waiting
+    let availableRoom = null;
+    for (const [roomCode, room] of publicRooms.entries()) {
+      if (room.player1 && !rooms.get(roomCode).player2) {
+        availableRoom = roomCode;
+        break;
+      }
+    }
+    
+    if (availableRoom) {
+      // Join existing public room
+      console.log('[PUBLIC] Joining player to existing room:', availableRoom);
+      publicRooms.delete(availableRoom); // Remove from queue
+      socket.emit('joinRoom', availableRoom); // Trigger normal join flow
+      handleJoinRoom(socket, availableRoom);
+    } else {
+      // Create new public room
+      const newRoomCode = 'PUB-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      console.log('[PUBLIC] Creating new room:', newRoomCode);
+      
+      publicRooms.set(newRoomCode, {
+        player1: socket.id,
+        createdAt: Date.now()
+      });
+      
+      // Initialize room
+      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1 });
+      
+      socket.emit('joinRoom', newRoomCode); // Trigger normal join flow
+      handleJoinRoom(socket, newRoomCode);
+      
+      // Notify player they're waiting
+      socket.emit('waitingForOpponent', { roomCode: newRoomCode });
+    }
+  });
+
+  // ============================================
+  // CANCEL MATCHMAKING
+  // ============================================
+  socket.on('cancelMatchmaking', () => {
+    console.log('[PUBLIC] Player canceling matchmaking:', socket.id);
+    
+    // Find and remove their public room
+    for (const [roomCode, room] of publicRooms.entries()) {
+      if (room.player1 === socket.id) {
+        console.log('[PUBLIC] Removing room:', roomCode);
+        publicRooms.delete(roomCode);
+        rooms.delete(roomCode);
+        socket.emit('matchmakingCanceled');
+        return;
+      }
+    }
+  });
+
+  // ============================================
+  // PRIVATE ROOM JOIN
+  // ============================================
   socket.on('joinRoom', (roomCode) => {
+    handleJoinRoom(socket, roomCode);
+  });
+  
+  function handleJoinRoom(socket, roomCode) {
     socket.join(roomCode);
     
     // Get or create room data
@@ -75,7 +148,7 @@ io.on('connection', (socket) => {
       
       console.log(`Room ${roomCode} is READY - Both players connected! Player 1's turn.`);
     }
-  });
+  } // End handleJoinRoom function
 
   socket.on('updateAvatar', (data) => {
     socket.to(data.roomCode).emit('opponentMoved', data);
@@ -128,6 +201,15 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     
+    // Clean up public room queue if player was waiting
+    for (const [roomCode, room] of publicRooms.entries()) {
+      if (room.player1 === socket.id) {
+        console.log(`[PUBLIC] Removing abandoned room ${roomCode}`);
+        publicRooms.delete(roomCode);
+        rooms.delete(roomCode);
+      }
+    }
+    
     // Clean up room assignments when player disconnects
     for (const [roomCode, room] of rooms.entries()) {
       if (room.player1 === socket.id) {
@@ -146,9 +228,26 @@ io.on('connection', (socket) => {
         rooms.delete(roomCode);
       }
     }
+    
+    // Broadcast updated player count to all remaining clients
+    io.emit('playerCount', { count: io.engine.clientsCount });
   });
 });
 
+// Clean up stale public rooms every minute
+setInterval(() => {
+  const now = Date.now();
+  const timeout = 5 * 60 * 1000; // 5 minutes
+  
+  for (const [roomCode, room] of publicRooms.entries()) {
+    if (now - room.createdAt > timeout) {
+      console.log(`[PUBLIC] Cleaning up stale room: ${roomCode}`);
+      publicRooms.delete(roomCode);
+      rooms.delete(roomCode);
+    }
+  }
+}, 60000);
+
 server.listen(3000, () => {
-  console.log('SERVER RESTARTED: Ready for Physics Sync');
+  console.log('SERVER RESTARTED: Ready for Physics Sync + Public Matchmaking');
 });

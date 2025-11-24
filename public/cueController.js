@@ -20,13 +20,15 @@ export class CueController {
     this.scene.add(this.cuePivot);
 
     this.raycaster = new THREE.Raycaster();
-    this.raycaster.far = 3.0;
+    this.raycaster.far = 2.0; // Allows seeing green dot while aiming (collision check is separate)
 
     const dotGeo = new THREE.SphereGeometry(0.005, 12, 12);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
     this.aimDot = new THREE.Mesh(dotGeo, dotMat);
     this.aimDot.visible = false;
     this.scene.add(this.aimDot);
+    
+    this.lastIntersectDistance = Infinity; // Track distance to cue ball for collision detection
 
     this.lockedAimQuaternion = new THREE.Quaternion();
     this.lockedBridgePos = new THREE.Vector3(); 
@@ -35,12 +37,13 @@ export class CueController {
     this.lastStrokePos = new THREE.Vector3(); 
     this.strokeVelocity = 0; 
     
-    this.maxPower = 5.0;
+    // --- SETTINGS (Optimized Mixed Version) ---
+    this.maxPower = 3.0;        // Lowered from 6.0 to double power translation (swing feels more responsive)
     this.hitThreshold = -0.05; 
     
     // Safety Mechanism Variables
     this.shotArmed = false; 
-    this.armThreshold = -0.10; // Must pull back 10cm to arm
+    this.armThreshold = -0.0127; // 0.5 inch (half inch) pull-back to arm the shot
 
     this.desktopAimPoint = new THREE.Vector3();
     this.lastCueBallPosition = new THREE.Vector3(-0.64, 0.978, 0);
@@ -70,6 +73,9 @@ export class CueController {
     tip.rotation.x = Math.PI / 2;
     tip.position.z = -0.7075;
     group.add(tip);
+    
+    // Store reference to tip for collision detection
+    group.userData.tipMesh = tip;
     
     return group;
   }
@@ -206,8 +212,20 @@ export class CueController {
         this.strokeVelocity = frameVelocity;
       }
 
-      // SHOT TRIGGER LOGIC
-      if (this.shotArmed && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.1) {
+      // SHOT TRIGGER LOGIC - Requires actual cue tip collision with ball
+      // Calculate actual distance from cue tip to cue ball center
+      let cueTipTouchingBall = false;
+      const cueBall = this.poolTable.getCueBall();
+      if (cueBall && this.cueStick.userData.tipMesh) {
+        const tipWorldPos = new THREE.Vector3();
+        this.cueStick.userData.tipMesh.getWorldPosition(tipWorldPos);
+        const distanceToball = tipWorldPos.distanceTo(cueBall.position);
+        const ballRadius = 0.028;
+        const tipContactThreshold = 0.06; // ~6cm from ball surface = tip touching or very close
+        cueTipTouchingBall = distanceToball < (ballRadius + tipContactThreshold);
+      }
+      
+      if (this.shotArmed && cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.1) {
         const power = Math.min(this.strokeVelocity / this.maxPower, 1.0);
         
         const direction = new THREE.Vector3(0, 0, 1)
@@ -226,7 +244,7 @@ export class CueController {
           const ballRadius = 0.028;
           
           const verticalOffsetRaw = offset.y / ballRadius;
-          const verticalOffset = THREE.MathUtils.clamp(verticalOffsetRaw * 1.5, -1, 1);
+          const verticalOffset = THREE.MathUtils.clamp(verticalOffsetRaw * 1.2, -1, 1); // Reduced by 20% (was 1.5)
           spin.vertical = verticalOffset;
           
           const shotDir2D = new THREE.Vector2(direction.x, direction.z).normalize();
@@ -234,7 +252,7 @@ export class CueController {
           
           const rightVec = new THREE.Vector2(-shotDir2D.y, shotDir2D.x);
           const horizontalOffsetRaw = offsetDir2D.dot(rightVec) / ballRadius;
-          const horizontalOffset = THREE.MathUtils.clamp(horizontalOffsetRaw * 1.5, -1, 1);
+          const horizontalOffset = THREE.MathUtils.clamp(horizontalOffsetRaw * 2.25, -1, 1); // Increased by 50% (was 1.5)
           spin.english = horizontalOffset;
           
           const deadZone = 0.02;
@@ -272,8 +290,10 @@ export class CueController {
     if (intersects.length > 0) {
       this.aimDot.visible = true;
       this.aimDot.position.copy(intersects[0].point);
+      this.lastIntersectDistance = intersects[0].distance; // Track distance for collision detection
     } else {
       this.aimDot.visible = false;
+      this.lastIntersectDistance = Infinity;
     }
   }
 
