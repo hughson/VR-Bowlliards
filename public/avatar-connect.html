@@ -32,7 +32,38 @@
             color: #666;
             margin-bottom: 30px;
         }
-        .connect-btn {
+        .step {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        .step ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .input-group {
+            margin: 20px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
             width: 100%;
             padding: 15px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -43,15 +74,11 @@
             font-weight: bold;
             cursor: pointer;
             transition: transform 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
         }
-        .connect-btn:hover {
+        button:hover {
             transform: scale(1.02);
         }
-        .connect-btn:disabled {
+        button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -77,30 +104,6 @@
             color: #0c5460;
             border: 2px solid #bee5eb;
         }
-        .status.warning {
-            background: #fff3cd;
-            color: #856404;
-            border: 2px solid #ffc107;
-        }
-        .step {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        .step h3 {
-            margin-top: 0;
-            color: #667eea;
-        }
-        .step ol {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        .avatar-preview {
-            display: none;
-            margin: 20px 0;
-            text-align: center;
-        }
         .avatar-list {
             display: none;
             margin: 20px 0;
@@ -122,23 +125,8 @@
             background: #e8eaf6;
             border-color: #667eea;
         }
-        .username-input {
-            margin: 20px 0;
+        #usernameSection {
             display: none;
-        }
-        .username-input input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-        .username-input label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-            color: #333;
         }
     </style>
 </head>
@@ -151,13 +139,22 @@
             <h3>How it works:</h3>
             <ol>
                 <li>Click "Connect with Google" below</li>
-                <li>Sign in with your Avaturn Google account</li>
+                <li>Sign in with the same Google account you use for Avaturn</li>
                 <li>Select which avatar to use in-game</li>
+                <li>Choose a username</li>
                 <li>We'll download and save it for you!</li>
             </ol>
         </div>
 
-        <div class="username-input" id="usernameInput">
+        <button id="connectBtn" onclick="connectWithGoogle()">
+            🔗 Connect with Google
+        </button>
+
+        <div id="status" class="status"></div>
+
+        <div id="avatarList" class="avatar-list"></div>
+
+        <div id="usernameSection" class="input-group">
             <label for="username">Choose your in-game username:</label>
             <input 
                 type="text" 
@@ -167,15 +164,9 @@
                 title="Only letters, numbers, underscores, and hyphens">
         </div>
 
-        <button class="connect-btn" id="connectBtn" onclick="connectAvaturn()">
-            <span id="btnText">🔗 Connect with Google</span>
+        <button id="downloadBtn" onclick="downloadAvatar()" style="display: none; margin-top: 20px;">
+            💾 Download Selected Avatar
         </button>
-
-        <div id="status" class="status"></div>
-
-        <div id="avatarList" class="avatar-list"></div>
-
-        <div id="avatarPreview" class="avatar-preview"></div>
     </div>
 
     <!-- Firebase SDK -->
@@ -183,50 +174,49 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 
     <script>
-        // Firebase config (same as Avaturn uses - from their public app)
+        // Your Firebase config
         const firebaseConfig = {
-            apiKey: "AIzaSyBbKGXhx4yyDLGN0uEcL-gPYuLLjmwNXKA",
-            authDomain: "in3d-web-avatars-prod.firebaseapp.com",
-            projectId: "in3d-web-avatars-prod",
-            storageBucket: "in3d-web-avatars-prod.firebasestorage.app",
-            messagingSenderId: "971674255534",
-            appId: "1:971674255534:web:0f1e02f9f815f2bb1fdf0a"
+            apiKey: "AIzaSyDorLca4yCzbdPuLVfj0GuH65OrMzz4VJE",
+            authDomain: "vr-bowlliards.firebaseapp.com",
+            projectId: "vr-bowlliards",
+            storageBucket: "vr-bowlliards.firebasestorage.app",
+            messagingSenderId: "1067404069820",
+            appId: "1:1067404069820:web:e069b9b74556ae48d8b9b9",
+            measurementId: "G-60X7P2GKJ2"
         };
 
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
 
         let selectedAvatarId = null;
+        let userToken = null;
 
-        async function connectAvaturn() {
-            const btn = document.getElementById('connectBtn');
-            const btnText = document.getElementById('btnText');
-            const statusDiv = document.getElementById('status');
-            const usernameInput = document.getElementById('usernameInput');
+        async function connectWithGoogle() {
+            const connectBtn = document.getElementById('connectBtn');
             
             try {
-                btn.disabled = true;
-                btnText.textContent = '⏳ Signing in...';
+                connectBtn.disabled = true;
+                connectBtn.textContent = '⏳ Signing in...';
                 showStatus('Opening Google Sign-In...', 'info');
 
-                // Sign in with Google (same as Avaturn)
+                // Sign in with Google
                 const provider = new firebase.auth.GoogleAuthProvider();
                 const result = await auth.signInWithPopup(provider);
                 
                 const user = result.user;
-                const token = await user.getIdToken();
+                userToken = await user.getIdToken();
 
-                showStatus('✅ Signed in! Fetching your avatars...', 'success');
-                btnText.textContent = '📥 Loading avatars...';
+                showStatus('✅ Signed in! Now fetching your avatars...', 'success');
+                connectBtn.textContent = '🔄 Fetching avatars...';
 
-                // Fetch avatars from Avaturn API via our server
+                // Fetch avatars
                 const response = await fetch('/api/avaturn/fetch-my-avatars', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ 
-                        token: token,
+                        token: userToken,
                         email: user.email
                     })
                 });
@@ -238,25 +228,22 @@
                 }
 
                 if (data.avatars && data.avatars.length > 0) {
-                    // Show username input
-                    usernameInput.style.display = 'block';
-                    
-                    // Show avatar selection
+                    document.getElementById('usernameSection').style.display = 'block';
                     displayAvatars(data.avatars);
-                    showStatus(`Found ${data.avatars.length} avatar(s)! Select one to continue.`, 'success');
-                    btnText.textContent = '💾 Save Selected Avatar';
-                    btn.onclick = saveAvatar;
+                    showStatus(`✅ Found ${data.avatars.length} avatar(s)! Select one and choose a username.`, 'success');
+                    document.getElementById('downloadBtn').style.display = 'block';
+                    connectBtn.textContent = '✅ Connected!';
                 } else {
-                    showStatus('⚠️ No avatars found. Please create one at hub.avaturn.me first!', 'warning');
-                    btnText.textContent = 'No Avatars Found';
+                    showStatus('⚠️ No avatars found. Please create one at hub.avaturn.me first!', 'error');
+                    connectBtn.disabled = false;
+                    connectBtn.textContent = '🔗 Try Again';
                 }
 
             } catch (error) {
                 console.error('Error:', error);
                 showStatus(`❌ Error: ${error.message}`, 'error');
-                btnText.textContent = 'Try Again';
-            } finally {
-                btn.disabled = false;
+                connectBtn.disabled = false;
+                connectBtn.textContent = '🔗 Connect with Google';
             }
         }
 
@@ -270,7 +257,8 @@
                 item.className = 'avatar-item';
                 item.innerHTML = `
                     <strong>Avatar ${index + 1}</strong><br>
-                    <small>ID: ${avatar.id.substring(0, 20)}...</small>
+                    <small>ID: ${avatar.id.substring(0, 30)}...</small><br>
+                    <small>Created: ${new Date(avatar.createdAt).toLocaleDateString()}</small>
                 `;
                 item.onclick = () => selectAvatar(avatar.id, item);
                 listDiv.appendChild(item);
@@ -280,44 +268,37 @@
         function selectAvatar(avatarId, element) {
             selectedAvatarId = avatarId;
             
-            // Remove selection from all items
             document.querySelectorAll('.avatar-item').forEach(item => {
                 item.classList.remove('selected');
             });
             
-            // Add selection to clicked item
             element.classList.add('selected');
-            
-            showStatus('✅ Avatar selected! Enter your username and click Save.', 'success');
+            showStatus('✅ Avatar selected! Enter your username and click Download.', 'success');
         }
 
-        async function saveAvatar() {
-            const username = document.getElementById('username').value;
-            const btn = document.getElementById('connectBtn');
-            const btnText = document.getElementById('btnText');
+        async function downloadAvatar() {
+            const username = document.getElementById('username').value.trim();
+            const downloadBtn = document.getElementById('downloadBtn');
 
             if (!username) {
-                showStatus('⚠️ Please enter a username!', 'warning');
-                return;
-            }
-
-            if (!selectedAvatarId) {
-                showStatus('⚠️ Please select an avatar!', 'warning');
+                showStatus('⚠️ Please enter a username!', 'error');
                 return;
             }
 
             if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-                showStatus('⚠️ Username can only contain letters, numbers, underscores, and hyphens!', 'warning');
+                showStatus('⚠️ Username can only contain letters, numbers, underscores, and hyphens!', 'error');
+                return;
+            }
+
+            if (!selectedAvatarId) {
+                showStatus('⚠️ Please select an avatar first!', 'error');
                 return;
             }
 
             try {
-                btn.disabled = true;
-                btnText.textContent = '⬇️ Downloading avatar...';
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '⬇️ Downloading...';
                 showStatus('Downloading your avatar from Avaturn...', 'info');
-
-                const user = auth.currentUser;
-                const token = await user.getIdToken();
 
                 const response = await fetch('/api/avaturn/download-avatar', {
                     method: 'POST',
@@ -325,7 +306,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        token: token,
+                        token: userToken,
                         avatarId: selectedAvatarId,
                         username: username
                     })
@@ -337,8 +318,9 @@
                     throw new Error(data.error || 'Failed to download avatar');
                 }
 
-                showStatus(`🎉 Success! Avatar saved as /avatars/${username}.glb`, 'success');
-                btnText.textContent = '✅ Avatar Connected!';
+                const sizeMB = (data.size / 1024 / 1024).toFixed(2);
+                showStatus(`🎉 Success! Avatar saved as ${data.url} (${sizeMB} MB)`, 'success');
+                downloadBtn.textContent = '✅ Avatar Downloaded!';
                 
                 setTimeout(() => {
                     window.location.href = '/';
@@ -347,8 +329,8 @@
             } catch (error) {
                 console.error('Error:', error);
                 showStatus(`❌ Error: ${error.message}`, 'error');
-                btnText.textContent = '💾 Save Selected Avatar';
-                btn.disabled = false;
+                downloadBtn.textContent = '💾 Download Selected Avatar';
+                downloadBtn.disabled = false;
             }
         }
 
