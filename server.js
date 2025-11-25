@@ -19,10 +19,11 @@ app.get('/api/avaturn/avatars', async (req, res) => {
 
   try {
     // Node 18+ has native fetch
-    const response = await fetch('https://api.avaturn.dev/v1/avatars', {
+    const response = await fetch('https://api.avaturn.me/avatars/v2?limit=7', {
       headers: {
         'Authorization': token,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-override-origin': 'hub.avaturn.me'
       }
     });
 
@@ -55,10 +56,11 @@ app.get('/api/avaturn/avatars/:id', async (req, res) => {
 
   try {
     // Node 18+ has native fetch
-    const response = await fetch(`https://api.avaturn.dev/v1/avatars/${req.params.id}`, {
+    const response = await fetch(`https://api.avaturn.me/avatars/${req.params.id}`, {
       headers: {
         'Authorization': token,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-override-origin': 'hub.avaturn.me'
       }
     });
 
