@@ -63,7 +63,7 @@ app.get('/api/avaturn/avatars/:id', async (req, res) => {
       headers: {
         'Authorization': token,
         'Content-Type': 'application/json',
-        'x-override-origin': 'hub.avaturn.me'
+        'origin': 'https://hub.avaturn.me'
       }
     });
 
@@ -122,7 +122,7 @@ app.post('/api/avaturn/fetch-my-avatars', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'x-override-origin': 'hub.avaturn.me'
+        'origin': 'https://hub.avaturn.me'
       }
     });
 
@@ -175,7 +175,7 @@ app.post('/api/avaturn/download-avatar', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'x-override-origin': 'hub.avaturn.me'
+        'origin': 'https://hub.avaturn.me'
       }
     });
 
