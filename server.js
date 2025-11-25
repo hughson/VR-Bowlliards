@@ -18,7 +18,7 @@ app.get('/api/avaturn/avatars', async (req, res) => {
   }
 
   try {
-    const fetch = (await import('node-fetch')).default;
+    // Node 18+ has native fetch
     const response = await fetch('https://api.avaturn.dev/v1/avatars', {
       headers: {
         'Authorization': token,
@@ -41,7 +41,7 @@ app.get('/api/avaturn/avatars/:id', async (req, res) => {
   }
 
   try {
-    const fetch = (await import('node-fetch')).default;
+    // Node 18+ has native fetch
     const response = await fetch(`https://api.avaturn.dev/v1/avatars/${req.params.id}`, {
       headers: {
         'Authorization': token,
