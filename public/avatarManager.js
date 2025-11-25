@@ -41,8 +41,8 @@ export class AvatarManager {
     this.simpleLocalAvatar = null;
     this.simpleRemoteAvatar = null;
     
-    // Default Avaturn avatar URL (you can change this)
-    this.defaultAvatarUrl = null;
+    // Default Avaturn avatar URL - Your personal avatar!
+    this.defaultAvatarUrl = 'https://storage.googleapis.com/avaturn-results-prod/2025/11/24/019ab7b1-542b-7212-96a9-c1f2747b2207/export/model_T.glb';
     
     // Name labels
     this.localNameLabel = null;

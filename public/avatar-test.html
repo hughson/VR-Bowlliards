@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avatar Test - Direct GLB Load</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 100%);
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 100;
+        }
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .success { color: #00ff00; }
+        .error { color: #ff4444; }
+        .loading { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>🎮 Your Avaturn Avatar Test</h3>
+        <div id="status" class="loading">⏳ Loading avatar...</div>
+        <div id="details" style="margin-top: 10px; font-size: 12px; color: #aaa;"></div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Your avatar URL
+        const AVATAR_URL = 'https://storage.googleapis.com/avaturn-results-prod/2025/11/24/019ab7b1-542b-7212-96a9-c1f2747b2207/export/model_T.glb';
+
+        const status = document.getElementById('status');
+        const details = document.getElementById('details');
+
+        // Setup scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.6, 2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1, 0);
+        controls.update();
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(2, 4, 3);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Ground
+        const groundGeo = new THREE.PlaneGeometry(10, 10);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Grid
+        const grid = new THREE.GridHelper(10, 20, 0x444444, 0x222222);
+        scene.add(grid);
+
+        // Load avatar
+        const loader = new GLTFLoader();
+        let avatar = null;
+        const startTime = Date.now();
+
+        loader.load(
+            AVATAR_URL,
+            (gltf) => {
+                const loadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                
+                avatar = gltf.scene;
+                scene.add(avatar);
+                
+                // Enable shadows
+                avatar.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                status.className = 'success';
+                status.textContent = '✅ Avatar loaded successfully!';
+                details.innerHTML = `
+                    Load time: ${loadTime}s<br>
+                    Meshes: ${countMeshes(avatar)}<br>
+                    Bones: ${countBones(avatar)}<br>
+                    <br>
+                    🖱️ Drag to rotate<br>
+                    🔍 Scroll to zoom
+                `;
+
+                console.log('Avatar loaded:', gltf);
+            },
+            (progress) => {
+                const percent = (progress.loaded / progress.total * 100).toFixed(0);
+                status.className = 'loading';
+                status.textContent = `⏳ Loading: ${percent}%`;
+                details.textContent = `${(progress.loaded / 1024 / 1024).toFixed(2)} MB / ${(progress.total / 1024 / 1024).toFixed(2)} MB`;
+            },
+            (error) => {
+                status.className = 'error';
+                status.textContent = '❌ Failed to load avatar';
+                details.textContent = error.message;
+                console.error('Load error:', error);
+            }
+        );
+
+        function countMeshes(obj) {
+            let count = 0;
+            obj.traverse((child) => {
+                if (child.isMesh) count++;
+            });
+            return count;
+        }
+
+        function countBones(obj) {
+            let count = 0;
+            obj.traverse((child) => {
+                if (child.isBone || child.type === 'Bone') count++;
+            });
+            return count;
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Slowly rotate avatar
+            if (avatar) {
+                avatar.rotation.y += 0.005;
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
