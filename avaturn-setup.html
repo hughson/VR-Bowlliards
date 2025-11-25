@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Avaturn Setup - VR Bowlliards</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    
+    h1 {
+      color: #00ff88;
+      text-align: center;
+    }
+    
+    .section {
+      background: #2a2a2a;
+      border-radius: 10px;
+      padding: 20px;
+      margin: 20px 0;
+      border: 2px solid #00ff88;
+    }
+    
+    .input-group {
+      margin: 15px 0;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #00ff88;
+      font-weight: bold;
+    }    
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px;
+      background: #1a1a1a;
+      border: 1px solid #00ff88;
+      border-radius: 5px;
+      color: #fff;
+      font-family: monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    }
+    
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+    
+    button {
+      background: #00ff88;
+      color: #000;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 5px;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background: #00cc66;
+    }    
+    button:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+    
+    .success {
+      background: #00ff88;
+      color: #000;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+    
+    .error {
+      background: #ff4444;
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+    
+    .info {
+      background: #4488ff;
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎮 Avaturn Setup for VR Bowlliards</h1>
+  
+  <div class="section">
+    <h2>Step 1: Set Your Avaturn Token</h2>
+    <div class="input-group">
+      <label>Your Avaturn JWT Token (Pre-loaded):</label>
+      <textarea id="tokenInput"></textarea>
+    </div>
+    <button onclick="saveToken()">💾 Save Token</button>
+    <button onclick="loadStoredToken()">📂 Load Saved Token</button>
+    <button onclick="clearToken()">🗑️ Clear Token</button>
+    <div id="tokenStatus"></div>
+  </div>
+  
+  <div class="section">
+    <h2>Step 2: Fetch Your Avatars</h2>
+    <button onclick="fetchAvatars()" id="fetchBtn">🔍 Fetch My Avatars</button>
+    <button onclick="testDefaultAvatar()">🎭 Test Default Avatar</button>
+    <div id="avatarStatus"></div>
+    <div id="avatarList"></div>
+  </div>
+  
+  <div class="section">
+    <h2>Step 3: Get Avatar URL</h2>
+    <div class="input-group">
+      <label>Avatar GLB URL:</label>
+      <input type="text" id="avatarUrlInput" readonly>
+    </div>
+    <button onclick="copyAvatarUrl()">📋 Copy URL</button>
+    <button onclick="openAvatarUrl()">🔗 Open in New Tab</button>
+    <div id="urlStatus"></div>
+  </div>
+  
+  <div class="section">
+    <h2>📖 Instructions</h2>
+    <ol>
+      <li>Your token is already pasted above</li>
+      <li>Click "Save Token" to store it</li>
+      <li>Click "Fetch My Avatars" to see your avatar collection</li>
+      <li>Select an avatar to get its URL</li>
+      <li>Copy the URL and use it in your game</li>
+    </ol>
+    
+    <div class="info">
+      <strong>Your Token Info:</strong>
+      <ul>
+        <li>User ID: lWknMT1KDMaVASEzxmNL7qk1q8v2</li>
+        <li>Email: thomas.hughson@gmail.com</li>
+        <li>Name: Thomas Hughson</li>
+      </ul>
+      <strong>Note:</strong> Token expires in ~1 hour. Get a new one from <a href="https://avaturn.me" target="_blank" style="color: #00ff88;">avaturn.me</a> when needed.
+    </div>
+  </div>
+  
+  <script>
+    // Standalone JavaScript - Uses server proxy to avoid CORS
+    
+    const API_BASE = '/api/avaturn';
+    let currentToken = null;
+    
+    // Pre-fill with the provided token
+    const providedToken = 'eyJhbGciOiJSUzI1NiIsImtpZCI6IjdjNzQ5NTFmNjBhMDE0NzE3ZjFlMzA4ZDZiMjgwZjQ4ZjFlODhmZGEiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGhvbWFzIEh1Z2hzb24iLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jS010WHY0dVJQTERLRi1JSHpmTWFLQWUzYjRIcUQ1OC1uc25ud1FjbkI5ejFmcFNJMkE9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vaW4zZC13ZWItYXZhdGFycy1wcm9kIiwiYXVkIjoiaW4zZC13ZWItYXZhdGFycy1wcm9kIiwiYXV0aF90aW1lIjoxNzY0MDA5NDAxLCJ1c2VyX2lkIjoibFdrbk1UMUtETWFWQVNFenhtTkw3cWsxcTh2MiIsInN1YiI6ImxXa25NVDFLRE1hVkFTRXp4bU5MN3FrMXE4djIiLCJpYXQiOjE3NjQwMTc5OTIsImV4cCI6MTc2NDAyMTU5MiwiZW1haWwiOiJ0aG9tYXMuaHVnaHNvbkBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJnb29nbGUuY29tIjpbIjEwMTkzNDYzNjQ1MDgyMDQ1MTczMiJdLCJlbWFpbCI6WyJ0aG9tYXMuaHVnaHNvbkBnbWFpbC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJjdXN0b20ifX0.GZ3Dyqi46D6MFqKSFPZPmZfVMAlGFLeoGtDj0ZutCvR1EQftTCvuR0E4g0y5PpU5_GDH0MY754Cngf6pYX2YplBFrqEcwc1JCYmA9am9bzbY6E7TB-APFlOXakrtDjPr5jEJ_gMATKyiqz_X4DBC-jeLHvUZiJxM6nkOX423sGgpJvnGKD2msI8IohvGIKwRJSk7yb5nFRwEjevVIE-qnMiIwcXCFpmEm3O77EiL2lRbX548HW3omqX0DNuy_q5W2jYY0dFERIZdI15oQLF9mpSy8LmdkNtnARCeIvnl6uk7rEgkfLjDx1gzs47bsChDf17igxznGBUMtks5AyDC1Q';
+    
+    document.getElementById('tokenInput').value = providedToken;
+    
+    function saveToken() {
+      const token = document.getElementById('tokenInput').value.trim();
+      if (!token) {
+        showStatus('tokenStatus', 'Please enter a token', 'error');
+        return;
+      }
+      
+      currentToken = token;
+      localStorage.setItem('avaturn_token', token);
+      showStatus('tokenStatus', '✅ Token saved successfully!', 'success');
+    }
+    
+    function loadStoredToken() {
+      const token = localStorage.getItem('avaturn_token');
+      if (token) {
+        document.getElementById('tokenInput').value = token;
+        currentToken = token;
+        showStatus('tokenStatus', '✅ Token loaded from storage', 'success');
+      } else {
+        showStatus('tokenStatus', '⚠️ No stored token found', 'error');
+      }
+    }
+    
+    function clearToken() {
+      localStorage.removeItem('avaturn_token');
+      document.getElementById('tokenInput').value = '';
+      currentToken = null;
+      showStatus('tokenStatus', '🗑️ Token cleared', 'info');
+    }
+    
+    async function fetchAvatars() {
+      if (!currentToken) {
+        showStatus('avatarStatus', 'Please save a token first', 'error');
+        return;
+      }
+      
+      showStatus('avatarStatus', '🔄 Fetching avatars from Avaturn API...', 'info');
+      document.getElementById('fetchBtn').disabled = true;
+      
+      try {
+        const response = await fetch(`${API_BASE}/v1/avatars`, {
+          headers: {
+            'Authorization': `Bearer ${currentToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('API Response:', data);
+        
+        const avatars = data.avatars || data.data || (Array.isArray(data) ? data : []);
+        
+        if (avatars.length === 0) {
+          showStatus('avatarStatus', '⚠️ No avatars found. Create one at avaturn.me!', 'error');
+        } else {
+          showStatus('avatarStatus', `✅ Found ${avatars.length} avatar(s)!`, 'success');
+          displayAvatars(avatars);
+        }
+      } catch (error) {
+        showStatus('avatarStatus', `❌ Error: ${error.message}`, 'error');
+        console.error('Fetch error:', error);
+      } finally {
+        document.getElementById('fetchBtn').disabled = false;
+      }
+    }
+    
+    async function testDefaultAvatar() {
+      if (!currentToken) {
+        showStatus('avatarStatus', 'Please save a token first', 'error');
+        return;
+      }
+      
+      showStatus('avatarStatus', '🔄 Getting default avatar...', 'info');
+      
+      try {
+        const response = await fetch(`${API_BASE}/v1/avatars`, {
+          headers: {
+            'Authorization': `Bearer ${currentToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const avatars = data.avatars || data.data || (Array.isArray(data) ? data : []);
+        
+        if (avatars.length > 0) {
+          const defaultAvatar = avatars[0];
+          const url = await getAvatarUrl(defaultAvatar.id);
+          if (url) {
+            document.getElementById('avatarUrlInput').value = url;
+            showStatus('avatarStatus', '✅ Default avatar URL loaded!', 'success');
+          }
+        } else {
+          showStatus('avatarStatus', '⚠️ No avatars found', 'error');
+        }
+      } catch (error) {
+        showStatus('avatarStatus', `❌ Error: ${error.message}`, 'error');
+      }
+    }
+    
+    async function getAvatarUrl(avatarId) {
+      try {
+        const response = await fetch(`${API_BASE}/v1/avatars/${avatarId}`, {
+          headers: {
+            'Authorization': `Bearer ${currentToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to get avatar: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Avatar data:', data);
+        
+        return data.url || data.glbUrl || data.model_url || data.modelUrl || data.file_url;
+      } catch (error) {
+        console.error('Error getting avatar URL:', error);
+        return null;
+      }
+    }
+    
+    function displayAvatars(avatars) {
+      const listDiv = document.getElementById('avatarList');
+      listDiv.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:15px;"></div>';
+      const grid = listDiv.firstChild;
+      
+      avatars.forEach((avatar, index) => {
+        const btn = document.createElement('button');
+        const name = avatar.name || avatar.title || `Avatar ${index + 1}`;
+        btn.textContent = name;
+        btn.style.width = '100%';
+        btn.onclick = () => selectAvatar(avatar.id);
+        grid.appendChild(btn);
+      });
+    }
+    
+    async function selectAvatar(avatarId) {
+      showStatus('avatarStatus', '🔄 Getting avatar URL...', 'info');
+      
+      try {
+        const url = await getAvatarUrl(avatarId);
+        if (url) {
+          document.getElementById('avatarUrlInput').value = url;
+          showStatus('urlStatus', '✅ Avatar URL ready! You can copy it now.', 'success');
+        } else {
+          showStatus('avatarStatus', '❌ Could not get avatar URL', 'error');
+        }
+      } catch (error) {
+        showStatus('avatarStatus', `❌ Error: ${error.message}`, 'error');
+      }
+    }
+    
+    function copyAvatarUrl() {
+      const url = document.getElementById('avatarUrlInput').value;
+      if (!url) {
+        showStatus('urlStatus', 'No URL to copy', 'error');
+        return;
+      }
+      
+      navigator.clipboard.writeText(url).then(() => {
+        showStatus('urlStatus', '📋 URL copied to clipboard!', 'success');
+      }).catch(err => {
+        showStatus('urlStatus', '❌ Failed to copy: ' + err.message, 'error');
+      });
+    }
+    
+    function openAvatarUrl() {
+      const url = document.getElementById('avatarUrlInput').value;
+      if (!url) {
+        showStatus('urlStatus', 'No URL to open', 'error');
+        return;
+      }
+      
+      window.open(url, '_blank');
+    }
+    
+    function showStatus(elementId, message, type) {
+      const element = document.getElementById(elementId);
+      element.className = type;
+      element.textContent = message;
+      element.style.display = 'block';
+    }
+    
+    // Auto-save token on page load
+    window.addEventListener('load', () => {
+      saveToken();
+    });
+  </script>
+</body>
+</html>

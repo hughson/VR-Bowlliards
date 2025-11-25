@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Stats - VR Bowlliards</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: linear-gradient(135deg, #001a1a 0%, #002020 50%, #001a1a 100%);
+      background-attachment: fixed;
+      color: #ffffff;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+    
+    /* Header */
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 15px;
+      padding: 20px; margin-bottom: 30px;
+      background: rgba(0, 40, 40, 0.8);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      border-radius: 15px;
+    }
+    .header h1 { color: #00ff88; font-family: 'Orbitron', monospace; font-size: 24px; }
+    .header a, .header button {
+      padding: 10px 20px; border-radius: 8px; font-weight: 700;
+      text-decoration: none; cursor: pointer; transition: all 0.2s;
+    }
+    .header a { background: #0088ff; color: white; }
+    .header a:hover { background: #00aaff; }
+    .header button { background: #ff5252; color: white; border: none; }
+    .header button:hover { background: #ff6666; }
+    
+    /* Auth Panel */
+    #authPanel {
+      background: rgba(0, 40, 40, 0.9); padding: 30px;
+      border: 2px solid #00ff88; border-radius: 15px;
+      max-width: 400px; margin: 100px auto; text-align: center;
+    }
+    #authPanel h2 { color: #00ff88; margin-bottom: 20px; }
+    #authPanel input {
+      width: 100%; padding: 12px; margin: 8px 0; font-size: 16px;
+      border: 2px solid #00ff88; border-radius: 8px;
+      background: rgba(0,0,0,0.5); color: white;
+    }
+    #authPanel input::placeholder { color: #888; }
+    #authPanel button {
+      width: 100%; padding: 14px; margin: 8px 0; font-size: 16px;
+      border: none; border-radius: 8px; cursor: pointer; font-weight: 700;
+    }
+    #loginBtn { background: #00ff88; color: #001a1a; }
+    #registerBtn { background: #0088ff; color: white; }
+    #authError { color: #ff5252; margin-top: 10px; }
+    .auth-note { color: #888; font-size: 14px; margin-top: 15px; }
+    
+    /* Stats Grid */
+    #statsPanel { display: none; }
+    #stats {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;
+      padding: 25px; margin-bottom: 30px;
+      background: rgba(0, 40, 40, 0.8);
+      border: 1px solid rgba(0, 255, 136, 0.3);
+      border-radius: 15px;
+    }
+    .stat-box {
+      background: rgba(0, 255, 136, 0.1); padding: 20px 25px;
+      border-radius: 12px; border: 1px solid rgba(0, 255, 136, 0.2);
+      min-width: 150px; text-align: center;
+      transition: all 0.3s;
+    }
+    .stat-box:hover {
+      border-color: #00ff88; transform: translateY(-3px);
+      box-shadow: 0 5px 20px rgba(0, 255, 136, 0.2);
+    }
+    .stat-label {
+      color: #00ff88; font-family: 'Orbitron', monospace;
+      font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      color: #ffffff; font-family: 'Orbitron', monospace;
+      font-size: 28px; font-weight: 900;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+    }
+    
+    /* Charts */
+    .charts-container {
+      display: flex; flex-wrap: wrap; gap: 25px;
+      justify-content: center;
+    }
+    .chart-wrapper {
+      flex: 1; min-width: 300px; max-width: 550px;
+      background: rgba(0, 40, 40, 0.8); padding: 25px;
+      border-radius: 15px; border: 1px solid rgba(0, 255, 136, 0.2);
+    }
+    canvas { max-width: 100%; }
+    
+    .welcome-msg {
+      text-align: center; margin-bottom: 20px;
+      color: #00ff88; font-size: 20px;
+    }
+    
+    @media (max-width: 600px) {
+      .header { flex-direction: column; text-align: center; }
+      .stat-box { min-width: 120px; padding: 15px; }
+      .stat-value { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Auth Panel (shown when not logged in) -->
+    <div id="authPanel">
+      <h2>🎱 STATS LOGIN</h2>
+      <p style="color:#aaa; margin-bottom:20px;">Track your progress across sessions</p>
+      <input type="text" id="usernameInput" placeholder="Username" maxlength="20">
+      <input type="password" id="pinInput" placeholder="4-digit PIN" maxlength="4" pattern="[0-9]*">
+      <button id="loginBtn">LOGIN</button>
+      <button id="registerBtn">CREATE ACCOUNT</button>
+      <div id="authError"></div>
+      <p class="auth-note">💡 Your PIN lets you recover your stats if you clear browser data</p>
+    </div>
+
+
+    <!-- Stats Panel (shown when logged in) -->
+    <div id="statsPanel">
+      <div class="header">
+        <h1>📊 MY STATS</h1>
+        <div class="welcome-msg">Welcome, <span id="playerName">Player</span>!</div>
+        <div>
+          <a href="index.html">🎮 Play</a>
+          <a href="leaderboards.html">🏆 Leaderboards</a>
+          <button id="logoutBtn">Logout</button>
+        </div>
+      </div>
+      
+      <div id="stats">
+        <div class="stat-box"><div class="stat-label">Total Games</div><div class="stat-value" id="totalGames">0</div></div>
+        <div class="stat-box"><div class="stat-label">Record (W-L-T)</div><div class="stat-value" id="record">0-0-0</div></div>
+        <div class="stat-box"><div class="stat-label">High Score</div><div class="stat-value" id="highScore">0</div></div>
+        <div class="stat-box"><div class="stat-label">Avg Score</div><div class="stat-value" id="avgScore">0</div></div>
+        <div class="stat-box"><div class="stat-label">Potting Avg</div><div class="stat-value" id="pottingAvg">.000</div></div>
+        <div class="stat-box"><div class="stat-label">High Run</div><div class="stat-value" id="highRun">0</div></div>
+        <div class="stat-box"><div class="stat-label">High Frame</div><div class="stat-value" id="highFrame">0</div></div>
+        <div class="stat-box"><div class="stat-label">Best Break</div><div class="stat-value" id="bestBreak">0</div></div>
+      </div>
+      
+      <div class="charts-container">
+        <div class="chart-wrapper">
+          <canvas id="frameTypeChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="scoreChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="recordChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StatsTracker } from './statsTracker.js';
+    
+    const tracker = new StatsTracker();
+    let scoreChart = null;
+    let frameTypeChart = null;
+    let recordChart = null;
+    
+    // DOM Elements
+    const authPanel = document.getElementById('authPanel');
+    const statsPanel = document.getElementById('statsPanel');
+    const usernameInput = document.getElementById('usernameInput');
+    const pinInput = document.getElementById('pinInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const authError = document.getElementById('authError');
+    
+    // Try auto-login on page load
+    async function init() {
+      const result = await tracker.autoLogin();
+      if (result.success) {
+        showStats();
+      }
+    }
+    
+    // Login handler
+    loginBtn.addEventListener('click', async () => {
+      const username = usernameInput.value.trim();
+      const pin = pinInput.value.trim();
+      
+      if (!username || !pin) {
+        authError.textContent = 'Please enter username and PIN';
+        return;
+      }
+      if (pin.length !== 4 || !/^\d+$/.test(pin)) {
+        authError.textContent = 'PIN must be 4 digits';
+        return;
+      }
+      
+      authError.textContent = 'Logging in...';
+      const result = await tracker.login(username, pin);
+      
+      if (result.success) {
+        showStats();
+      } else {
+        authError.textContent = result.error;
+      }
+    });
+
+
+    // Register handler
+    registerBtn.addEventListener('click', async () => {
+      const username = usernameInput.value.trim();
+      const pin = pinInput.value.trim();
+      
+      if (!username || !pin) {
+        authError.textContent = 'Please enter username and PIN';
+        return;
+      }
+      if (username.length < 3) {
+        authError.textContent = 'Username must be at least 3 characters';
+        return;
+      }
+      if (pin.length !== 4 || !/^\d+$/.test(pin)) {
+        authError.textContent = 'PIN must be 4 digits';
+        return;
+      }
+      
+      authError.textContent = 'Creating account...';
+      const result = await tracker.register(username, pin);
+      
+      if (result.success) {
+        showStats();
+      } else {
+        authError.textContent = result.error;
+      }
+    });
+    
+    // Logout handler
+    logoutBtn.addEventListener('click', () => {
+      tracker.logout();
+      authPanel.style.display = 'block';
+      statsPanel.style.display = 'none';
+      usernameInput.value = '';
+      pinInput.value = '';
+      authError.textContent = '';
+    });
+    
+    // Show stats panel
+    async function showStats() {
+      authPanel.style.display = 'none';
+      statsPanel.style.display = 'block';
+      
+      await tracker.refreshStats();
+      const stats = tracker.getMyStats();
+      const player = tracker.currentPlayer;
+      
+      document.getElementById('playerName').textContent = player.displayName || player.username;
+      document.getElementById('totalGames').textContent = stats.totalGames;
+      document.getElementById('record').textContent = `${stats.wins}-${stats.losses}-${stats.ties}`;
+      document.getElementById('highScore').textContent = stats.highScore;
+      document.getElementById('avgScore').textContent = stats.avgScore;
+      document.getElementById('pottingAvg').textContent = stats.pottingAvg;
+      document.getElementById('highRun').textContent = stats.highRun;
+      document.getElementById('highFrame').textContent = stats.highFrameScore;
+      document.getElementById('bestBreak').textContent = stats.maxBreakBalls;
+      
+      // Draw charts
+      drawCharts(stats, player);
+    }
+    
+    async function drawCharts(stats, player) {
+      // Frame type pie chart
+      const totalFrames = (player.strikeFrames || 0) + (player.spareFrames || 0) + (player.openFrames || 0);
+      
+      if (frameTypeChart) frameTypeChart.destroy();
+      
+      // Only draw pie chart if there's data
+      if (totalFrames > 0) {
+        frameTypeChart = new Chart(document.getElementById('frameTypeChart'), {
+          type: 'pie',
+          data: {
+            labels: ['Strikes', 'Spares', 'Open'],
+            datasets: [{
+              data: [player.strikeFrames || 0, player.spareFrames || 0, player.openFrames || 0],
+              backgroundColor: ['#4CAF50', '#2196F3', '#FFC107']
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: '#fff' } },
+              title: { display: true, text: 'Frame Types', color: '#00ff88', font: { size: 18 } }
+            }
+          }
+        });
+      } else {
+        // Show placeholder when no data
+        const ctx = document.getElementById('frameTypeChart').getContext('2d');
+        ctx.fillStyle = '#888';
+        ctx.font = '16px Rajdhani';
+        ctx.textAlign = 'center';
+        ctx.fillText('No frame data yet', ctx.canvas.width / 2, ctx.canvas.height / 2);
+      }
+
+      // W-L-T Record bar chart
+      if (recordChart) recordChart.destroy();
+      
+      const totalRecords = (stats.wins || 0) + (stats.losses || 0) + (stats.ties || 0);
+      
+      if (totalRecords > 0) {
+        recordChart = new Chart(document.getElementById('recordChart'), {
+          type: 'bar',
+          data: {
+            labels: ['Wins', 'Losses', 'Ties'],
+            datasets: [{
+              label: 'Record',
+              data: [stats.wins || 0, stats.losses || 0, stats.ties || 0],
+              backgroundColor: ['#4CAF50', '#f44336', '#FFC107'],
+              borderColor: ['#66BB6A', '#EF5350', '#FFD54F'],
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+              y: { 
+                beginAtZero: true, 
+                ticks: { color: '#fff', stepSize: 1 }, 
+                grid: { color: 'rgba(255,255,255,0.1)' } 
+              },
+              x: { 
+                ticks: { color: '#fff' }, 
+                grid: { color: 'rgba(255,255,255,0.1)' } 
+              }
+            },
+            plugins: {
+              legend: { display: false },
+              title: { display: true, text: 'Win/Loss Record', color: '#00ff88', font: { size: 18 } }
+            }
+          }
+        });
+      } else {
+        // Show placeholder when no multiplayer data
+        const ctx = document.getElementById('recordChart').getContext('2d');
+        ctx.fillStyle = '#888';
+        ctx.font = '16px Rajdhani';
+        ctx.textAlign = 'center';
+        ctx.fillText('No multiplayer games yet', ctx.canvas.width / 2, ctx.canvas.height / 2);
+      }
+
+      // Score history line chart
+      const games = await tracker.getMyGames(20);
+      const sortedGames = [...games].reverse(); // Oldest first for chart
+      
+      if (scoreChart) scoreChart.destroy();
+      
+      if (sortedGames.length > 0) {
+        scoreChart = new Chart(document.getElementById('scoreChart'), {
+          type: 'line',
+          data: {
+            labels: sortedGames.map((g, i) => `Game ${i + 1}`),
+            datasets: [{
+              label: 'Score',
+              data: sortedGames.map(g => g.score || 0),
+              borderColor: '#00ff88',
+              backgroundColor: 'rgba(0, 255, 136, 0.2)',
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+              y: { beginAtZero: true, ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+              x: { ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+            },
+            plugins: {
+              legend: { labels: { color: '#fff' } },
+              title: { display: true, text: 'Recent Games', color: '#00ff88', font: { size: 18 } }
+            }
+          }
+        });
+      } else {
+        // Show placeholder when no games
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        ctx.fillStyle = '#888';
+        ctx.font = '16px Rajdhani';
+        ctx.textAlign = 'center';
+        ctx.fillText('No games played yet', ctx.canvas.width / 2, ctx.canvas.height / 2);
+      }
+    }
+    
+    // Initialize
+    init();
+  </script>
+</body>
+</html>
