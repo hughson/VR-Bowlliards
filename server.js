@@ -189,19 +189,42 @@ app.post('/api/avaturn/download-avatar', async (req, res) => {
 
     const metadata = await metaResponse.json();
     
-    // Find the GLB URL (might be in exports or model_url)
+    // Log the full metadata structure to see what we have
+    console.log('[AVATURN DOWNLOAD] Full metadata structure:');
+    console.log(JSON.stringify(metadata, null, 2));
+    
+    // Find the GLB URL (try multiple possible locations)
     let glbUrl = null;
+    
+    // Check various possible locations
     if (metadata.exports && metadata.exports.glb) {
       glbUrl = metadata.exports.glb;
+      console.log('[AVATURN DOWNLOAD] Found GLB in exports.glb');
     } else if (metadata.model_url) {
       glbUrl = metadata.model_url;
+      console.log('[AVATURN DOWNLOAD] Found GLB in model_url');
     } else if (metadata.urlGlb) {
       glbUrl = metadata.urlGlb;
+      console.log('[AVATURN DOWNLOAD] Found GLB in urlGlb');
+    } else if (metadata.url_glb) {
+      glbUrl = metadata.url_glb;
+      console.log('[AVATURN DOWNLOAD] Found GLB in url_glb');
+    } else if (metadata.glb_url) {
+      glbUrl = metadata.glb_url;
+      console.log('[AVATURN DOWNLOAD] Found GLB in glb_url');
+    } else if (metadata.body && metadata.body.url_glb) {
+      glbUrl = metadata.body.url_glb;
+      console.log('[AVATURN DOWNLOAD] Found GLB in body.url_glb');
     }
 
     if (!glbUrl) {
-      console.log('[AVATURN DOWNLOAD] Metadata:', JSON.stringify(metadata, null, 2));
-      return res.status(404).json({ error: 'GLB URL not found in avatar metadata' });
+      console.log('[AVATURN DOWNLOAD] ❌ GLB URL NOT FOUND!');
+      console.log('[AVATURN DOWNLOAD] Available keys:', Object.keys(metadata));
+      return res.status(404).json({ 
+        error: 'GLB URL not found in avatar metadata',
+        availableKeys: Object.keys(metadata),
+        metadata: metadata
+      });
     }
 
     console.log(`[AVATURN DOWNLOAD] GLB URL found: ${glbUrl.substring(0, 100)}...`);
