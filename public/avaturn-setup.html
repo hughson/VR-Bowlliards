@@ -153,9 +153,9 @@
   </div>
   
   <script>
-    // Standalone JavaScript - NO MODULE IMPORTS
+    // Standalone JavaScript - Uses server proxy to avoid CORS
     
-    const API_BASE = 'https://api.avaturn.dev';
+    const API_BASE = '/api/avaturn';
     let currentToken = null;
     
     // Pre-fill with the provided token

@@ -7,6 +7,56 @@ const { Server } = require("socket.io");
 // Serve static files from the public directory
 app.use(express.static('public'));
 
+// Parse JSON bodies
+app.use(express.json());
+
+// CORS proxy for Avaturn API
+app.get('/api/avaturn/avatars', async (req, res) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).json({ error: 'No authorization token provided' });
+  }
+
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const response = await fetch('https://api.avaturn.dev/v1/avatars', {
+      headers: {
+        'Authorization': token,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[AVATURN PROXY] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/avaturn/avatars/:id', async (req, res) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).json({ error: 'No authorization token provided' });
+  }
+
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const response = await fetch(`https://api.avaturn.dev/v1/avatars/${req.params.id}`, {
+      headers: {
+        'Authorization': token,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[AVATURN PROXY] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
