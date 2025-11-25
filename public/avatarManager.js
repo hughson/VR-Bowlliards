@@ -36,13 +36,11 @@ export class AvatarManager {
       spine: null,
       hips: null
     };    
-    // Fallback simple avatars (for when Avaturn isn't loaded)
-    this.useSimpleAvatars = false;
-    this.simpleLocalAvatar = null;
-    this.simpleRemoteAvatar = null;
+    // Use simple avatars for now (no API hassle!)
+    this.useSimpleAvatars = true;
     
-    // Default Avaturn avatar URL - Your personal avatar!
-    this.defaultAvatarUrl = 'https://storage.googleapis.com/avaturn-results-prod/2025/11/24/019ab7b1-542b-7212-96a9-c1f2747b2207/export/model_T.glb';
+    // Default Avaturn avatar URL - Your personal avatar (requires fresh signed URLs)
+    this.defaultAvatarUrl = null; // Disabled due to URL expiration
     
     // Name labels
     this.localNameLabel = null;
@@ -51,10 +49,15 @@ export class AvatarManager {
 
   /**
    * Initialize local player avatar
-   * @param {string} avatarUrl - URL to Avaturn GLB file
+   * @param {string} avatarUrl - URL to Avaturn GLB file (or username for self-hosted)
    * @param {string} playerName - Player's display name
    */
   async loadLocalAvatar(avatarUrl = null, playerName = 'Player') {
+    // Check if avatarUrl is just a username (no /)
+    if (avatarUrl && !avatarUrl.includes('/') && !avatarUrl.includes('.')) {
+      avatarUrl = `/avatars/${avatarUrl}.glb`;
+    }
+    
     const url = avatarUrl || this.defaultAvatarUrl;
     
     if (!url || this.useSimpleAvatars) {
@@ -91,10 +94,15 @@ export class AvatarManager {
 
   /**
    * Initialize remote player avatar
-   * @param {string} avatarUrl - URL to Avaturn GLB file
+   * @param {string} avatarUrl - URL to Avaturn GLB file (or username for self-hosted)
    * @param {string} playerName - Player's display name
    */
   async loadRemoteAvatar(avatarUrl = null, playerName = 'Opponent') {
+    // Check if avatarUrl is just a username (no /)
+    if (avatarUrl && !avatarUrl.includes('/') && !avatarUrl.includes('.')) {
+      avatarUrl = `/avatars/${avatarUrl}.glb`;
+    }
+    
     const url = avatarUrl || this.defaultAvatarUrl;
     
     if (!url || this.useSimpleAvatars) {

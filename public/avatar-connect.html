@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Your Avatar - VR Bowlliards</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 90%;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .connect-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .connect-btn:hover {
+            transform: scale(1.02);
+        }
+        .connect-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            display: none;
+            text-align: center;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #bee5eb;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffc107;
+        }
+        .step {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        .step ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .avatar-preview {
+            display: none;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .avatar-list {
+            display: none;
+            margin: 20px 0;
+        }
+        .avatar-item {
+            padding: 15px;
+            margin: 10px 0;
+            background: #f0f0f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .avatar-item:hover {
+            background: #e0e0e0;
+            border-color: #667eea;
+        }
+        .avatar-item.selected {
+            background: #e8eaf6;
+            border-color: #667eea;
+        }
+        .username-input {
+            margin: 20px 0;
+            display: none;
+        }
+        .username-input input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .username-input label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Connect Your Avatar</h1>
+        <p class="subtitle">Sign in with Google to automatically sync your Avaturn avatar</p>
+
+        <div class="step">
+            <h3>How it works:</h3>
+            <ol>
+                <li>Click "Connect with Google" below</li>
+                <li>Sign in with your Avaturn Google account</li>
+                <li>Select which avatar to use in-game</li>
+                <li>We'll download and save it for you!</li>
+            </ol>
+        </div>
+
+        <div class="username-input" id="usernameInput">
+            <label for="username">Choose your in-game username:</label>
+            <input 
+                type="text" 
+                id="username" 
+                placeholder="e.g., Thomas, Player123"
+                pattern="[a-zA-Z0-9_-]+"
+                title="Only letters, numbers, underscores, and hyphens">
+        </div>
+
+        <button class="connect-btn" id="connectBtn" onclick="connectAvaturn()">
+            <span id="btnText">🔗 Connect with Google</span>
+        </button>
+
+        <div id="status" class="status"></div>
+
+        <div id="avatarList" class="avatar-list"></div>
+
+        <div id="avatarPreview" class="avatar-preview"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+
+    <script>
+        // Firebase config (same as Avaturn uses - from their public app)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBbKGXhx4yyDLGN0uEcL-gPYuLLjmwNXKA",
+            authDomain: "in3d-web-avatars-prod.firebaseapp.com",
+            projectId: "in3d-web-avatars-prod",
+            storageBucket: "in3d-web-avatars-prod.firebasestorage.app",
+            messagingSenderId: "971674255534",
+            appId: "1:971674255534:web:0f1e02f9f815f2bb1fdf0a"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        let selectedAvatarId = null;
+
+        async function connectAvaturn() {
+            const btn = document.getElementById('connectBtn');
+            const btnText = document.getElementById('btnText');
+            const statusDiv = document.getElementById('status');
+            const usernameInput = document.getElementById('usernameInput');
+            
+            try {
+                btn.disabled = true;
+                btnText.textContent = '⏳ Signing in...';
+                showStatus('Opening Google Sign-In...', 'info');
+
+                // Sign in with Google (same as Avaturn)
+                const provider = new firebase.auth.GoogleAuthProvider();
+                const result = await auth.signInWithPopup(provider);
+                
+                const user = result.user;
+                const token = await user.getIdToken();
+
+                showStatus('✅ Signed in! Fetching your avatars...', 'success');
+                btnText.textContent = '📥 Loading avatars...';
+
+                // Fetch avatars from Avaturn API via our server
+                const response = await fetch('/api/avaturn/fetch-my-avatars', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        token: token,
+                        email: user.email
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to fetch avatars');
+                }
+
+                if (data.avatars && data.avatars.length > 0) {
+                    // Show username input
+                    usernameInput.style.display = 'block';
+                    
+                    // Show avatar selection
+                    displayAvatars(data.avatars);
+                    showStatus(`Found ${data.avatars.length} avatar(s)! Select one to continue.`, 'success');
+                    btnText.textContent = '💾 Save Selected Avatar';
+                    btn.onclick = saveAvatar;
+                } else {
+                    showStatus('⚠️ No avatars found. Please create one at hub.avaturn.me first!', 'warning');
+                    btnText.textContent = 'No Avatars Found';
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Error: ${error.message}`, 'error');
+                btnText.textContent = 'Try Again';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function displayAvatars(avatars) {
+            const listDiv = document.getElementById('avatarList');
+            listDiv.style.display = 'block';
+            listDiv.innerHTML = '<h3>Select Your Avatar:</h3>';
+
+            avatars.forEach((avatar, index) => {
+                const item = document.createElement('div');
+                item.className = 'avatar-item';
+                item.innerHTML = `
+                    <strong>Avatar ${index + 1}</strong><br>
+                    <small>ID: ${avatar.id.substring(0, 20)}...</small>
+                `;
+                item.onclick = () => selectAvatar(avatar.id, item);
+                listDiv.appendChild(item);
+            });
+        }
+
+        function selectAvatar(avatarId, element) {
+            selectedAvatarId = avatarId;
+            
+            // Remove selection from all items
+            document.querySelectorAll('.avatar-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            // Add selection to clicked item
+            element.classList.add('selected');
+            
+            showStatus('✅ Avatar selected! Enter your username and click Save.', 'success');
+        }
+
+        async function saveAvatar() {
+            const username = document.getElementById('username').value;
+            const btn = document.getElementById('connectBtn');
+            const btnText = document.getElementById('btnText');
+
+            if (!username) {
+                showStatus('⚠️ Please enter a username!', 'warning');
+                return;
+            }
+
+            if (!selectedAvatarId) {
+                showStatus('⚠️ Please select an avatar!', 'warning');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+                showStatus('⚠️ Username can only contain letters, numbers, underscores, and hyphens!', 'warning');
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btnText.textContent = '⬇️ Downloading avatar...';
+                showStatus('Downloading your avatar from Avaturn...', 'info');
+
+                const user = auth.currentUser;
+                const token = await user.getIdToken();
+
+                const response = await fetch('/api/avaturn/download-avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        token: token,
+                        avatarId: selectedAvatarId,
+                        username: username
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to download avatar');
+                }
+
+                showStatus(`🎉 Success! Avatar saved as /avatars/${username}.glb`, 'success');
+                btnText.textContent = '✅ Avatar Connected!';
+                
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 3000);
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Error: ${error.message}`, 'error');
+                btnText.textContent = '💾 Save Selected Avatar';
+                btn.disabled = false;
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

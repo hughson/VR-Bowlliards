@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
@@ -82,6 +85,226 @@ app.get('/api/avaturn/avatars/:id', async (req, res) => {
     console.error('[AVATURN PROXY] Error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Get fresh avatar GLB URL (no auth needed - returns public URL)
+app.get('/api/avatar-url/:userId', async (req, res) => {
+  try {
+    // For now, return the user's avatar ID
+    // In production, you'd look this up from your database
+    const avatarId = '019ab7b1-542b-7212-96a9-c1f2747b2207'; // Thomas's avatar
+    
+    // Return a URL that the client can fetch to get the current signed URL
+    res.json({ 
+      avatarId: avatarId,
+      fetchUrl: `/api/avaturn/avatars/${avatarId}`
+    });
+  } catch (error) {
+    console.error('[AVATAR URL] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fetch user's avatars from Avaturn (OAuth-style flow)
+app.post('/api/avaturn/fetch-my-avatars', async (req, res) => {
+  const { token, email } = req.body;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  try {
+    console.log(`[AVATURN OAUTH] Fetching avatars for ${email}`);
+    
+    const response = await fetch('https://api.avaturn.me/avatars/v2?limit=20', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-override-origin': 'hub.avaturn.me'
+      }
+    });
+
+    const text = await response.text();
+    console.log('[AVATURN OAUTH] Response status:', response.status);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: `Avaturn API returned ${response.status}`,
+        details: text.substring(0, 200)
+      });
+    }
+
+    const data = JSON.parse(text);
+    
+    // Return simplified avatar list
+    const avatars = data.items ? data.items.map(item => ({
+      id: item.id,
+      createdAt: item.created_at
+    })) : [];
+
+    console.log(`[AVATURN OAUTH] Found ${avatars.length} avatars`);
+    
+    res.json({ avatars });
+  } catch (error) {
+    console.error('[AVATURN OAUTH] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Download avatar and save to server (OAuth-style flow)
+app.post('/api/avaturn/download-avatar', async (req, res) => {
+  const { token, avatarId, username } = req.body;
+  
+  if (!token || !avatarId || !username) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // Validate username
+  if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+    return res.status(400).json({ error: 'Invalid username' });
+  }
+
+  try {
+    console.log(`[AVATURN DOWNLOAD] Downloading avatar ${avatarId} for ${username}`);
+
+    // Step 1: Get avatar metadata to get GLB URL
+    const metaResponse = await fetch(`https://api.avaturn.me/avatars/${avatarId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-override-origin': 'hub.avaturn.me'
+      }
+    });
+
+    if (!metaResponse.ok) {
+      const text = await metaResponse.text();
+      return res.status(metaResponse.status).json({ 
+        error: `Failed to get avatar metadata: ${metaResponse.status}`,
+        details: text.substring(0, 200)
+      });
+    }
+
+    const metadata = await metaResponse.json();
+    
+    // Find the GLB URL (might be in exports or model_url)
+    let glbUrl = null;
+    if (metadata.exports && metadata.exports.glb) {
+      glbUrl = metadata.exports.glb;
+    } else if (metadata.model_url) {
+      glbUrl = metadata.model_url;
+    } else if (metadata.urlGlb) {
+      glbUrl = metadata.urlGlb;
+    }
+
+    if (!glbUrl) {
+      console.log('[AVATURN DOWNLOAD] Metadata:', JSON.stringify(metadata, null, 2));
+      return res.status(404).json({ error: 'GLB URL not found in avatar metadata' });
+    }
+
+    console.log(`[AVATURN DOWNLOAD] GLB URL found: ${glbUrl.substring(0, 100)}...`);
+
+    // Step 2: Download the GLB file
+    const glbResponse = await fetch(glbUrl);
+    
+    if (!glbResponse.ok) {
+      return res.status(glbResponse.status).json({ 
+        error: `Failed to download GLB: ${glbResponse.status}`
+      });
+    }
+
+    const buffer = await glbResponse.arrayBuffer();
+    console.log(`[AVATURN DOWNLOAD] Downloaded ${buffer.byteLength} bytes`);
+
+    // Step 3: Save to disk
+    const avatarsDir = path.join(__dirname, 'public', 'avatars');
+    if (!fs.existsSync(avatarsDir)) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+    }
+
+    const filePath = path.join(avatarsDir, `${username}.glb`);
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+
+    console.log(`[AVATURN DOWNLOAD] Saved to ${filePath}`);
+
+    res.json({
+      success: true,
+      url: `/avatars/${username}.glb`,
+      username: username,
+      size: buffer.byteLength
+    });
+
+  } catch (error) {
+    console.error('[AVATURN DOWNLOAD] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Avatar upload configuration
+const avatarStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const avatarsDir = path.join(__dirname, 'public', 'avatars');
+    // Create avatars directory if it doesn't exist
+    if (!fs.existsSync(avatarsDir)) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+    }
+    cb(null, avatarsDir);
+  },
+  filename: function (req, file, cb) {
+    // Save as username.glb
+    const username = req.body.username;
+    if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+      return cb(new Error('Invalid username'));
+    }
+    cb(null, `${username}.glb`);
+  }
+});
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB max
+  },
+  fileFilter: function (req, file, cb) {
+    if (!file.originalname.endsWith('.glb')) {
+      return cb(new Error('Only .glb files are allowed'));
+    }
+    cb(null, true);
+  }
+});
+
+// Avatar upload endpoint
+app.post('/api/upload-avatar', avatarUpload.single('avatar'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const username = req.body.username;
+    const avatarUrl = `/avatars/${username}.glb`;
+
+    console.log(`[AVATAR UPLOAD] ${username} uploaded avatar: ${req.file.size} bytes`);
+
+    res.json({
+      success: true,
+      url: avatarUrl,
+      username: username,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('[AVATAR UPLOAD] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Error handler for multer errors
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large. Maximum size is 50MB.' });
+    }
+    return res.status(400).json({ error: error.message });
+  }
+  next(error);
 });
 
 const io = new Server(server, {
