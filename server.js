@@ -115,6 +115,8 @@ app.post('/api/avaturn/fetch-my-avatars', async (req, res) => {
 
   try {
     console.log(`[AVATURN OAUTH] Fetching avatars for ${email}`);
+    console.log(`[AVATURN OAUTH] Token length: ${token.length}`);
+    console.log(`[AVATURN OAUTH] Token starts with: ${token.substring(0, 20)}...`);
     
     const response = await fetch('https://api.avaturn.me/avatars/v2?limit=20', {
       headers: {
@@ -126,6 +128,7 @@ app.post('/api/avaturn/fetch-my-avatars', async (req, res) => {
 
     const text = await response.text();
     console.log('[AVATURN OAUTH] Response status:', response.status);
+    console.log('[AVATURN OAUTH] Response body:', text.substring(0, 500));
 
     if (!response.ok) {
       return res.status(response.status).json({ 
