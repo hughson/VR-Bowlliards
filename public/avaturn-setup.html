@@ -203,7 +203,7 @@
       document.getElementById('fetchBtn').disabled = true;
       
       try {
-        const response = await fetch(`${API_BASE}/v1/avatars`, {
+        const response = await fetch(`${API_BASE}/avatars`, {
           headers: {
             'Authorization': `Bearer ${currentToken}`,
             'Content-Type': 'application/json'
@@ -242,7 +242,7 @@
       showStatus('avatarStatus', '🔄 Getting default avatar...', 'info');
       
       try {
-        const response = await fetch(`${API_BASE}/v1/avatars`, {
+        const response = await fetch(`${API_BASE}/avatars`, {
           headers: {
             'Authorization': `Bearer ${currentToken}`,
             'Content-Type': 'application/json'
@@ -273,7 +273,7 @@
     
     async function getAvatarUrl(avatarId) {
       try {
-        const response = await fetch(`${API_BASE}/v1/avatars/${avatarId}`, {
+        const response = await fetch(`${API_BASE}/avatars/${avatarId}`, {
           headers: {
             'Authorization': `Bearer ${currentToken}`,
             'Content-Type': 'application/json'
