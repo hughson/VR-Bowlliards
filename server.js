@@ -197,7 +197,10 @@ app.post('/api/avaturn/download-avatar', async (req, res) => {
     let glbUrl = null;
     
     // Check various possible locations
-    if (metadata.exports && metadata.exports.glb) {
+    if (metadata.scan_glb_url) {
+      glbUrl = metadata.scan_glb_url;
+      console.log('[AVATURN DOWNLOAD] Found GLB in scan_glb_url');
+    } else if (metadata.exports && metadata.exports.glb) {
       glbUrl = metadata.exports.glb;
       console.log('[AVATURN DOWNLOAD] Found GLB in exports.glb');
     } else if (metadata.model_url) {
