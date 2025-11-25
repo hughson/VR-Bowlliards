@@ -26,7 +26,20 @@ app.get('/api/avaturn/avatars', async (req, res) => {
       }
     });
 
-    const data = await response.json();
+    console.log('[AVATURN PROXY] Response status:', response.status);
+    console.log('[AVATURN PROXY] Response headers:', response.headers);
+    
+    const text = await response.text();
+    console.log('[AVATURN PROXY] Response body (first 200 chars):', text.substring(0, 200));
+
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: `Avaturn API returned ${response.status}`,
+        details: text.substring(0, 200)
+      });
+    }
+
+    const data = JSON.parse(text);
     res.json(data);
   } catch (error) {
     console.error('[AVATURN PROXY] Error:', error);
@@ -49,7 +62,19 @@ app.get('/api/avaturn/avatars/:id', async (req, res) => {
       }
     });
 
-    const data = await response.json();
+    console.log('[AVATURN PROXY] Response status:', response.status);
+    
+    const text = await response.text();
+    console.log('[AVATURN PROXY] Response body (first 200 chars):', text.substring(0, 200));
+
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: `Avaturn API returned ${response.status}`,
+        details: text.substring(0, 200)
+      });
+    }
+
+    const data = JSON.parse(text);
     res.json(data);
   } catch (error) {
     console.error('[AVATURN PROXY] Error:', error);
