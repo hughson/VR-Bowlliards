@@ -3,7 +3,6 @@ import * as THREE from 'three';
 export class CueController {
   constructor(scene, controller1, controller2, getLeftHandedMode, getIsVR, poolTable, game) {
     this.scene = scene;
-    // controller1 and controller2 args are deprecated/ignored in favor of dynamic lookup
     this.getLeftHandedMode = getLeftHandedMode;
     this.getIsVR = getIsVR;
     this.poolTable = poolTable;
@@ -20,7 +19,7 @@ export class CueController {
     this.scene.add(this.cuePivot);
 
     this.raycaster = new THREE.Raycaster();
-    this.raycaster.far = 2.0; // Allows seeing green dot while aiming (collision check is separate)
+    this.raycaster.far = 2.0;
 
     const dotGeo = new THREE.SphereGeometry(0.005, 12, 12);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
@@ -28,7 +27,7 @@ export class CueController {
     this.aimDot.visible = false;
     this.scene.add(this.aimDot);
     
-    this.lastIntersectDistance = Infinity; // Track distance to cue ball for collision detection
+    this.lastIntersectDistance = Infinity;
 
     this.lockedAimQuaternion = new THREE.Quaternion();
     this.lockedBridgePos = new THREE.Vector3(); 
@@ -39,15 +38,15 @@ export class CueController {
     
     // Velocity history for better slow shot detection
     this.velocityHistory = [];
-    this.maxHistoryFrames = 5; // Track last 5 frames 
+    this.maxHistoryFrames = 5;
     
-    // --- SETTINGS (Optimized Mixed Version) ---
-    this.maxPower = 3.0;        // Lowered from 6.0 to double power translation (swing feels more responsive)
+    // --- SHOT SETTINGS ---
+    this.maxPower = 2.5;        
     this.hitThreshold = -0.05; 
     
-    // Safety Mechanism Variables
+    // Safety mechanism
     this.shotArmed = false; 
-    this.armThreshold = -0.0127; // 0.5 inch (half inch) pull-back to arm the shot
+    this.armThreshold = -0.0127; // 0.5 inch pull-back to arm
 
     this.desktopAimPoint = new THREE.Vector3();
     this.lastCueBallPosition = new THREE.Vector3(-0.64, 0.978, 0);
@@ -78,42 +77,36 @@ export class CueController {
     tip.position.z = -0.7075;
     group.add(tip);
     
-    // Store reference to tip for collision detection
     group.userData.tipMesh = tip;
     
     return group;
   }
 
-  // Dynamic Controller Retrieval via Game Instance (Fixes Handedness Issues)
   getControllers() {
     const leftHanded = this.getLeftHandedMode();
-    
     const leftHand = this.game.leftHandController;
     const rightHand = this.game.rightHandController;
 
     if (leftHanded) {
-        return { bridgeController: rightHand, strokeController: leftHand };
+      return { bridgeController: rightHand, strokeController: leftHand };
     } else {
-        return { bridgeController: leftHand, strokeController: rightHand };
+      return { bridgeController: leftHand, strokeController: rightHand };
     }
   }
 
   lockStrokeDirection() {
     if (this.controlState !== 'IDLE') return;
 
-    // --- STRICT CHECK: IS THE GREEN DOT VISIBLE? ---
-    // If the raycaster isn't hitting the cue ball, aimDot.visible is false.
-    // In this case, we RETURN immediately. The trigger press is ignored.
+    // Only allow locking if green dot is visible (aiming at cue ball)
     if (this.aimDot.visible === false) {
-        return; 
+      return; 
     }
-    // -----------------------------------------------
 
     const { bridgeController, strokeController } = this.getControllers();
     if (!bridgeController || !strokeController) return;
 
     this.controlState = 'STROKE_LOCKED';
-    this.shotArmed = false; // Reset safety
+    this.shotArmed = false;
 
     this.cuePivot.getWorldQuaternion(this.lockedAimQuaternion);
     this.cuePivot.getWorldPosition(this.lockedButtPos);
@@ -123,7 +116,7 @@ export class CueController {
     this.lastStrokePos.copy(this.strokeStartPos);
     
     this.strokeVelocity = 0;
-    this.velocityHistory = []; // Clear velocity history for new shot
+    this.velocityHistory = [];
     this.lastFrameTime = performance.now();
   }
 
@@ -131,20 +124,20 @@ export class CueController {
     if (this.controlState !== 'STROKE_LOCKED') return;
     this.controlState = 'IDLE';
     this.strokeVelocity = 0;
-    this.velocityHistory = []; // Clear velocity history
+    this.velocityHistory = [];
     this.shotArmed = false;
   }
+
 
   updateVR() {
     if (!this.getIsVR()) return;
     
     const { bridgeController, strokeController } = this.getControllers();
 
-    // Safety check for controller availability
     if (!bridgeController || !strokeController) {
-        this.cuePivot.visible = false;
-        this.aimDot.visible = false;
-        return;
+      this.cuePivot.visible = false;
+      this.aimDot.visible = false;
+      return;
     }
 
     const bridgePos = new THREE.Vector3();
@@ -180,7 +173,8 @@ export class CueController {
       this.cuePivot.lookAt(bridgePos); 
       
       this.strokeVelocity = 0;
-      this.velocityHistory = []; // Clear velocity history in idle state
+      this.velocityHistory = [];
+      
     } else if (this.controlState === 'STROKE_LOCKED') {
       // In LOCKED, cue follows the line established when trigger was pressed
       this.cuePivot.quaternion.copy(this.lockedAimQuaternion);
@@ -196,11 +190,9 @@ export class CueController {
       // Safety / Arming Logic
       if (!this.shotArmed) {
         if (distanceAlongCue < this.armThreshold) {
-            this.shotArmed = true;
-            // Optional: haptic feedback could go here
+          this.shotArmed = true;
         } else {
-            // Prevent moving forward until armed
-            distanceAlongCue = Math.min(distanceAlongCue, 0);
+          distanceAlongCue = Math.min(distanceAlongCue, 0);
         }
       }
       
@@ -221,98 +213,115 @@ export class CueController {
         this.velocityHistory.shift();
       }
       
-      // For slow shots: Use weighted average of recent velocities (more weight on recent frames)
-      // For fast shots: Use maximum velocity as before
+      // Calculate weighted average velocity for slow shots
       let recentAvgVelocity = 0;
       if (this.velocityHistory.length > 0) {
         let weightSum = 0;
         let weightedSum = 0;
         for (let i = 0; i < this.velocityHistory.length; i++) {
-          const weight = i + 1; // More recent frames get higher weight
+          const weight = i + 1;
           weightedSum += this.velocityHistory[i] * weight;
           weightSum += weight;
         }
         recentAvgVelocity = weightedSum / weightSum;
       }
       
-      // Determine which method to use based on velocity magnitude
-      // For slow movements (< 1.0 m/s), use weighted average
-      // For fast movements, use maximum velocity
       if (Math.abs(frameVelocity) < 1.0) {
-        // Slow shot: use weighted average for more accurate slow shot detection
         this.strokeVelocity = Math.max(this.strokeVelocity, recentAvgVelocity);
       } else {
-        // Fast shot: use maximum velocity as before
         if (frameVelocity > this.strokeVelocity) {
           this.strokeVelocity = frameVelocity;
         }
       }
 
-      // SHOT TRIGGER LOGIC - Requires actual cue tip collision with ball
-      // Calculate actual distance from cue tip to cue ball center
+      // Check if cue tip is touching ball
       let cueTipTouchingBall = false;
-      const cueBall = this.poolTable.getCueBall();
       if (cueBall && this.cueStick.userData.tipMesh) {
         const tipWorldPos = new THREE.Vector3();
         this.cueStick.userData.tipMesh.getWorldPosition(tipWorldPos);
         const distanceToball = tipWorldPos.distanceTo(cueBall.position);
         const ballRadius = 0.028;
-        const tipContactThreshold = 0.06; // ~6cm from ball surface = tip touching or very close
+        const tipContactThreshold = 0.06; 
         cueTipTouchingBall = distanceToball < (ballRadius + tipContactThreshold);
       }
       
-      if (this.shotArmed && cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.1) {
+      // SHOT TRIGGER
+      if (this.shotArmed && cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.001) {
+        
+        // Calculate power (0-1 range)
         const power = Math.min(this.strokeVelocity / this.maxPower, 1.0);
         
+        // Get shot direction
         const direction = new THREE.Vector3(0, 0, 1)
           .applyQuaternion(this.lockedAimQuaternion);
 
+        // Calculate spin from hit position × power
         let spin = { vertical: 0, english: 0 };
         
-        // We calculate spin based on where the green dot WAS (if visible)
-        // Since we locked when visible, it should still be valid relative to the cue ball
         if (this.aimDot.visible) {
-          const cueBall = this.poolTable.getCueBall();
           const ballCenter = cueBall.position.clone();
           const hitPoint = this.aimDot.position.clone();
-          
           const offset = new THREE.Vector3().subVectors(hitPoint, ballCenter);
           const ballRadius = 0.028;
           
-          const verticalOffsetRaw = offset.y / ballRadius;
-          const verticalOffset = THREE.MathUtils.clamp(verticalOffsetRaw * 1.2, -1, 1); // Reduced by 20% (was 1.5)
-          spin.vertical = verticalOffset;
+          // Vertical offset (above/below center) - affects topspin/backspin
+          const verticalOffset = THREE.MathUtils.clamp(offset.y / ballRadius, -1, 1);
           
+          // Horizontal offset (left/right) - affects english
           const shotDir2D = new THREE.Vector2(direction.x, direction.z).normalize();
           const offsetDir2D = new THREE.Vector2(offset.x, offset.z);
-          
           const rightVec = new THREE.Vector2(-shotDir2D.y, shotDir2D.x);
-          const horizontalOffsetRaw = offsetDir2D.dot(rightVec) / ballRadius;
-          const horizontalOffset = THREE.MathUtils.clamp(horizontalOffsetRaw * 2.25, -1, 1); // Increased by 50% (was 1.5)
-          spin.english = horizontalOffset;
+          const horizontalOffset = THREE.MathUtils.clamp(offsetDir2D.dot(rightVec) / ballRadius, -1, 1);
           
-          const deadZone = 0.02;
-
-          if (Math.abs(spin.vertical) < deadZone) spin.vertical = 0;
-          if (Math.abs(spin.english) < deadZone) spin.english = 0;
-
-          if (spin.vertical !== 0 || spin.english !== 0) {
-            console.log('[SPIN DEBUG] from aimDot:', spin);
+          // ============================================
+          // SPIN = POSITION × POWER
+          // ============================================
+          // Use physics engine if available, otherwise simple calculation
+          const pe = this.poolTable.getPhysicsEngine ? this.poolTable.getPhysicsEngine() : null;
+          
+          if (pe) {
+            spin = pe.calculateSpin(verticalOffset, horizontalOffset, power);
+          } else {
+            // Fallback simple calculation
+            spin.vertical = verticalOffset * power;
+            spin.english = horizontalOffset * power;
           }
+          
+          // English direction logic (based on shot direction)
+          // Default: Inverted for short rails
+          spin.english = -spin.english;
+          
+          // If shooting towards side cushions, flip
+          if (Math.abs(direction.x) > Math.abs(direction.z)) {
+            spin.english *= -1;
+          }
+          
+          // Small deadzone
+          if (Math.abs(spin.vertical) < 0.01) spin.vertical = 0;
+          if (Math.abs(spin.english) < 0.01) spin.english = 0;
+
+          console.log('[CueController] Shot:', {
+            power: power.toFixed(3),
+            verticalOffset: verticalOffset.toFixed(3),
+            horizontalOffset: horizontalOffset.toFixed(3),
+            spin: spin
+          });
         }
 
+        // Take the shot!
         this.game.takeShot(direction, power, spin);
 
+        // Reset state
         this.controlState = 'IDLE';
         this.strokeVelocity = 0;
-        this.velocityHistory = []; // Clear velocity history after shot
-        this.shotArmed = false; // Reset
+        this.velocityHistory = []; 
+        this.shotArmed = false; 
       }
 
       this.lastStrokePos.copy(strokePos);
     }
 
-    // Raycast from cue tip to find the ball (Update Green Dot)
+    // Update green aim dot via raycast
     const cueTipPos = new THREE.Vector3();
     this.cuePivot.getWorldPosition(cueTipPos);
     
@@ -327,7 +336,7 @@ export class CueController {
     if (intersects.length > 0) {
       this.aimDot.visible = true;
       this.aimDot.position.copy(intersects[0].point);
-      this.lastIntersectDistance = intersects[0].distance; // Track distance for collision detection
+      this.lastIntersectDistance = intersects[0].distance; 
     } else {
       this.aimDot.visible = false;
       this.lastIntersectDistance = Infinity;
@@ -335,7 +344,6 @@ export class CueController {
   }
 
   updateDesktop() {
-    // In desktop mode, we don't show the 3D cue stick
     this.cuePivot.visible = false;
     if (this.aimDot) {
       this.aimDot.visible = false;

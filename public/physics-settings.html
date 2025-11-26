@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR Bowlliards - Physics Settings</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #40a4c4;
+      margin-bottom: 10px;
+      font-size: 2em;
+    }
+    
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 30px;
+    }
+    
+    .connection-status {
+      text-align: center;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: bold;
+    }
+    
+    .connected {
+      background: rgba(0, 255, 0, 0.2);
+      color: #4caf50;
+    }
+    
+    .disconnected {
+      background: rgba(255, 0, 0, 0.2);
+      color: #f44336;
+    }
+    
+    .sections {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 20px;
+    }
+    
+    .section {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .section h2 {
+      color: #40a4c4;
+      margin-bottom: 15px;
+      font-size: 1.1em;
+      border-bottom: 1px solid rgba(64, 164, 196, 0.3);
+      padding-bottom: 8px;
+    }
+    
+    .param-row {
+      margin-bottom: 15px;
+    }
+    
+    .param-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    
+    .param-name {
+      font-size: 0.9em;
+      color: #ccc;
+    }
+    
+    .param-value {
+      font-family: 'Courier New', monospace;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #4caf50;
+      font-size: 0.85em;
+    }
+    
+    .param-slider {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+    }
+    
+    .param-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #40a4c4;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    
+    .param-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    
+    .param-description {
+      font-size: 0.75em;
+      color: #666;
+      margin-top: 3px;
+      font-style: italic;
+    }
+    
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9em;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: #40a4c4;
+      color: white;
+    }
+    
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ccc;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      filter: brightness(1.1);
+    }
+    
+    .export-area {
+      margin-top: 20px;
+    }
+    
+    textarea {
+      width: 100%;
+      height: 150px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8em;
+      padding: 10px;
+      resize: vertical;
+    }
+    
+    .presets {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    
+    .preset-btn {
+      padding: 8px 16px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(64, 164, 196, 0.5);
+      border-radius: 20px;
+      color: #40a4c4;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: all 0.2s;
+    }
+    
+    .preset-btn:hover {
+      background: rgba(64, 164, 196, 0.2);
+      transform: scale(1.05);
+    }
+    
+    .info-box {
+      background: rgba(64, 164, 196, 0.1);
+      border: 1px solid rgba(64, 164, 196, 0.3);
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .info-box h3 {
+      color: #40a4c4;
+      margin-bottom: 8px;
+    }
+    
+    .info-box p {
+      font-size: 0.85em;
+      line-height: 1.5;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎱 VR Bowlliards Physics Settings</h1>
+    <p class="subtitle">Adjust physics parameters in real-time</p>
+    
+    <div id="connection-status" class="connection-status disconnected">
+      ⚠️ Not connected to game - Changes saved locally
+    </div>
+    
+    <div class="info-box">
+      <h3>How Spin Works</h3>
+      <p>
+        <strong>Spin = Hit Position × Shot Power</strong><br>
+        Center hits start as pure slide, then friction adds natural forward roll.<br>
+        Topspin/Backspin only activate on object ball collision (follow/draw).<br>
+        English only affects cushion rebounds (no curve during travel).
+      </p>
+    </div>
+    
+    <div class="presets">
+      <button class="preset-btn" onclick="loadPreset('realistic')">🎯 Realistic</button>
+      <button class="preset-btn" onclick="loadPreset('arcade')">🕹️ Arcade</button>
+      <button class="preset-btn" onclick="loadPreset('tournament')">🏆 Tournament</button>
+      <button class="preset-btn" onclick="loadPreset('practice')">📚 Practice</button>
+    </div>
+    
+    <div class="sections" id="params-container">
+      <!-- Sections will be generated by JavaScript -->
+    </div>
+    
+    <div class="actions">
+      <button class="btn-primary" onclick="applyToGame()">✅ Apply to Game</button>
+      <button class="btn-secondary" onclick="exportParams()">📤 Export JSON</button>
+      <button class="btn-secondary" onclick="importParams()">📥 Import JSON</button>
+      <button class="btn-danger" onclick="resetDefaults()">🔄 Reset Defaults</button>
+    </div>
+    
+    <div class="export-area">
+      <textarea id="json-area" placeholder="JSON will appear here when you export, or paste JSON here to import..."></textarea>
+    </div>
+  </div>
+
+  <script>
+    // Parameter definitions with metadata
+    const paramDefs = {
+      // Shot Power
+      powerMultiplier: { section: 'Shot Power', min: 5, max: 25, step: 0.5, desc: 'Base force multiplier for shots' },
+      maxPower: { section: 'Shot Power', min: 0.5, max: 2, step: 0.1, desc: 'Maximum power cap (0-1 scale)' },
+      minPower: { section: 'Shot Power', min: 0.01, max: 0.2, step: 0.01, desc: 'Minimum power threshold' },
+      
+      // Spin Sensitivity
+      verticalSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 3, step: 0.1, desc: 'How much vertical offset affects spin' },
+      englishSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 4, step: 0.1, desc: 'How much horizontal offset affects spin' },
+      spinPowerScaling: { section: 'Spin Sensitivity', min: 0.5, max: 2, step: 0.1, desc: 'Power effect on spin (1=linear, >1=exponential)' },
+      
+      // Slide-to-Roll
+      feltFriction: { section: 'Ball-Felt Friction', min: 0.05, max: 0.5, step: 0.01, desc: 'Friction coefficient for slide-to-roll' },
+      slideThreshold: { section: 'Ball-Felt Friction', min: 0.01, max: 0.3, step: 0.01, desc: 'Speed difference for sliding vs rolling' },
+      rollAcceleration: { section: 'Ball-Felt Friction', min: 0.5, max: 5, step: 0.1, desc: 'How fast friction converts slide to roll' },
+      
+      // Spin Effects
+      topspinFollowForce: { section: 'Spin Effects', min: 0.5, max: 4, step: 0.1, desc: 'Topspin follow-through force' },
+      backspinDrawForce: { section: 'Spin Effects', min: 0.5, max: 5, step: 0.1, desc: 'Backspin draw-back force' },
+      spinEffectThreshold: { section: 'Spin Effects', min: 0.05, max: 0.4, step: 0.01, desc: 'Minimum spin to trigger effects' },
+      stopShotThreshold: { section: 'Spin Effects', min: 0.1, max: 0.6, step: 0.05, desc: 'Backspin level for stop vs draw shot' },
+      
+      // English Effects
+      cushionEnglishEffect: { section: 'English (Cushion)', min: 0.1, max: 1.5, step: 0.05, desc: 'How much english affects cushion rebound' },
+      cushionSpeedThreshold: { section: 'English (Cushion)', min: 0.1, max: 1, step: 0.05, desc: 'Minimum speed for english on cushion' },
+      
+      // Angular Velocity
+      initialRollFactor: { section: 'Angular Velocity', min: 0, max: 1, step: 0.05, desc: 'Initial forward roll (0=pure slide, 1=pure roll)' },
+      topspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 100, step: 5, desc: 'Angular velocity for topspin (rad/s)' },
+      backspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 100, step: 5, desc: 'Angular velocity for backspin' },
+      englishAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 80, step: 5, desc: 'Angular velocity for english (Y-axis)' },
+      
+      // Decay & Damping
+      spinDecayRate: { section: 'Decay & Damping', min: 0.9, max: 1, step: 0.005, desc: 'How fast stored spin decays per frame' },
+      angularDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.5, step: 0.01, desc: 'Angular damping when slow' },
+      angularDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Angular damping when fast' },
+      linearDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.5, step: 0.01, desc: 'Linear damping when slow' },
+      linearDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Linear damping when fast' },
+      
+      // Speed Thresholds
+      slowSpeedThreshold: { section: 'Speed Thresholds', min: 0.2, max: 1.5, step: 0.05, desc: 'Speed below which ball is "slow"' },
+      stopSpeedThreshold: { section: 'Speed Thresholds', min: 0.02, max: 0.2, step: 0.01, desc: 'Speed below which ball stops' },
+      stopAngularThreshold: { section: 'Speed Thresholds', min: 0.2, max: 1.5, step: 0.1, desc: 'Angular speed below which rotation stops' },
+    };
+    
+    // Default values
+    const defaults = {
+      powerMultiplier: 12.7,
+      maxPower: 1.0,
+      minPower: 0.05,
+      verticalSpinSensitivity: 1.5,
+      englishSpinSensitivity: 2.0,
+      spinPowerScaling: 1.0,
+      feltFriction: 0.2,
+      slideThreshold: 0.1,
+      rollAcceleration: 2.0,
+      topspinFollowForce: 1.5,
+      backspinDrawForce: 2.0,
+      spinEffectThreshold: 0.15,
+      stopShotThreshold: 0.3,
+      cushionEnglishEffect: 0.6,
+      cushionSpeedThreshold: 0.3,
+      initialRollFactor: 0.3,
+      topspinAngularMultiplier: 50,
+      backspinAngularMultiplier: 50,
+      englishAngularMultiplier: 30,
+      spinDecayRate: 0.98,
+      angularDampingLow: 0.2,
+      angularDampingHigh: 0.15,
+      linearDampingLow: 0.2,
+      linearDampingHigh: 0.12,
+      slowSpeedThreshold: 0.5,
+      stopSpeedThreshold: 0.08,
+      stopAngularThreshold: 0.6,
+    };
+    
+    // Presets
+    const presets = {
+      realistic: { ...defaults },
+      arcade: {
+        ...defaults,
+        powerMultiplier: 15,
+        verticalSpinSensitivity: 2.0,
+        englishSpinSensitivity: 2.5,
+        topspinFollowForce: 2.0,
+        backspinDrawForce: 2.5,
+        cushionEnglishEffect: 0.8,
+      },
+      tournament: {
+        ...defaults,
+        powerMultiplier: 11,
+        feltFriction: 0.15,
+        topspinFollowForce: 1.2,
+        backspinDrawForce: 1.5,
+        cushionEnglishEffect: 0.5,
+        linearDampingHigh: 0.1,
+      },
+      practice: {
+        ...defaults,
+        verticalSpinSensitivity: 2.5,
+        englishSpinSensitivity: 3.0,
+        topspinFollowForce: 2.5,
+        backspinDrawForce: 3.0,
+        cushionEnglishEffect: 1.0,
+        spinEffectThreshold: 0.1,
+      }
+    };
+    
+    // Current values
+    let currentParams = { ...defaults };
+    
+    // WebSocket connection
+    let ws = null;
+    
+    // Load from localStorage
+    function loadFromStorage() {
+      const saved = localStorage.getItem('vrBowlliardsPhysics');
+      if (saved) {
+        try {
+          currentParams = { ...defaults, ...JSON.parse(saved) };
+        } catch (e) {
+          console.error('Failed to load saved params:', e);
+        }
+      }
+    }
+    
+    // Save to localStorage
+    function saveToStorage() {
+      localStorage.setItem('vrBowlliardsPhysics', JSON.stringify(currentParams));
+    }
+    
+    // Build UI
+    function buildUI() {
+      const container = document.getElementById('params-container');
+      container.innerHTML = '';
+      
+      // Group by section
+      const sections = {};
+      Object.keys(paramDefs).forEach(key => {
+        const def = paramDefs[key];
+        if (!sections[def.section]) sections[def.section] = [];
+        sections[def.section].push({ key, ...def });
+      });
+      
+      // Build section HTML
+      Object.keys(sections).forEach(sectionName => {
+        const section = document.createElement('div');
+        section.className = 'section';
+        section.innerHTML = `<h2>${sectionName}</h2>`;
+        
+        sections[sectionName].forEach(param => {
+          const value = currentParams[param.key];
+          const row = document.createElement('div');
+          row.className = 'param-row';
+          row.innerHTML = `
+            <div class="param-label">
+              <span class="param-name">${param.key}</span>
+              <span class="param-value" id="val-${param.key}">${value.toFixed(3)}</span>
+            </div>
+            <input type="range" class="param-slider" 
+              id="slider-${param.key}"
+              min="${param.min}" max="${param.max}" step="${param.step}" 
+              value="${value}"
+              oninput="updateParam('${param.key}', this.value)">
+            <div class="param-description">${param.desc}</div>
+          `;
+          section.appendChild(row);
+        });
+        
+        container.appendChild(section);
+      });
+    }
+    
+    // Update parameter
+    function updateParam(key, value) {
+      const numValue = parseFloat(value);
+      currentParams[key] = numValue;
+      document.getElementById(`val-${key}`).textContent = numValue.toFixed(3);
+      saveToStorage();
+      
+      // Send to game if connected
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'updatePhysics', key, value: numValue }));
+      }
+    }
+    
+    // Apply all to game
+    function applyToGame() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'setAllPhysics', params: currentParams }));
+        alert('✅ Physics applied to game!');
+      } else {
+        alert('⚠️ Not connected to game.\n\nSettings saved locally and will be applied when you start the game.');
+      }
+      saveToStorage();
+    }
+    
+    // Export to JSON
+    function exportParams() {
+      document.getElementById('json-area').value = JSON.stringify(currentParams, null, 2);
+    }
+    
+    // Import from JSON
+    function importParams() {
+      const json = document.getElementById('json-area').value;
+      try {
+        const imported = JSON.parse(json);
+        currentParams = { ...defaults, ...imported };
+        saveToStorage();
+        buildUI();
+        alert('✅ Parameters imported successfully!');
+      } catch (e) {
+        alert('❌ Invalid JSON: ' + e.message);
+      }
+    }
+    
+    // Reset to defaults
+    function resetDefaults() {
+      if (confirm('Reset all parameters to defaults?')) {
+        currentParams = { ...defaults };
+        saveToStorage();
+        buildUI();
+      }
+    }
+    
+    // Load preset
+    function loadPreset(name) {
+      if (presets[name]) {
+        currentParams = { ...presets[name] };
+        saveToStorage();
+        buildUI();
+        alert(`✅ Loaded "${name}" preset!`);
+      }
+    }
+    
+    // Connect to game WebSocket
+    function connectToGame() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}`;
+      
+      try {
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+          document.getElementById('connection-status').className = 'connection-status connected';
+          document.getElementById('connection-status').textContent = '✅ Connected to game - Changes apply in real-time';
+          ws.send(JSON.stringify({ type: 'physicsSettingsConnected' }));
+        };
+        
+        ws.onclose = () => {
+          document.getElementById('connection-status').className = 'connection-status disconnected';
+          document.getElementById('connection-status').textContent = '⚠️ Disconnected - Reconnecting...';
+          setTimeout(connectToGame, 3000);
+        };
+        
+        ws.onerror = () => {
+          document.getElementById('connection-status').className = 'connection-status disconnected';
+          document.getElementById('connection-status').textContent = '⚠️ Connection error - Changes saved locally';
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'currentPhysics') {
+              currentParams = { ...defaults, ...data.params };
+              buildUI();
+            }
+          } catch (e) {}
+        };
+      } catch (e) {
+        console.log('WebSocket not available, running in standalone mode');
+      }
+    }
+    
+    // Initialize
+    loadFromStorage();
+    buildUI();
+    connectToGame();
+  </script>
+</body>
+</html>

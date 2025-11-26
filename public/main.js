@@ -19,14 +19,37 @@ import { StatsTracker } from './statsTracker.js';
 
 class VRBowlliardsGame {
   constructor() {
+    console.log('[GAME] Constructor: Starting setupRenderer...');
     this.setupRenderer();
+    console.log('[GAME] Constructor: setupRenderer complete');
+    
+    console.log('[GAME] Constructor: Starting setupScene...');
     this.setupScene();
+    console.log('[GAME] Constructor: setupScene complete');
+    
+    console.log('[GAME] Constructor: Starting setupCamera...');
     this.setupCamera();
+    console.log('[GAME] Constructor: setupCamera complete');
+    
+    console.log('[GAME] Constructor: Starting setupLighting...');
     this.setupLighting();
+    console.log('[GAME] Constructor: setupLighting complete');
+    
+    console.log('[GAME] Constructor: Starting setupPhysics...');
     this.setupPhysics();
+    console.log('[GAME] Constructor: setupPhysics complete');
+    
+    console.log('[GAME] Constructor: Starting setupLocomotion...');
     this.setupLocomotion();
+    console.log('[GAME] Constructor: setupLocomotion complete');
+    
+    console.log('[GAME] Constructor: Starting setupVR...');
     this.setupVR();
+    console.log('[GAME] Constructor: setupVR complete');
+    
+    console.log('[GAME] Constructor: Starting setupDesktopControls...');
     this.setupDesktopControls();
+    console.log('[GAME] Constructor: setupDesktopControls complete');
     
     this.clock = new THREE.Clock();
     this.leftHanded = false;
@@ -52,6 +75,7 @@ class VRBowlliardsGame {
     this.gameState = 'ready';
     
     window.addEventListener('resize', () => this.onWindowResize());
+    console.log('[GAME] Constructor: Complete!');
   }
 
   setTurnState(isMyTurn) {
@@ -184,14 +208,19 @@ class VRBowlliardsGame {
     this.controller2 = this.renderer.xr.getController(1);
     this.controller1.userData.index = 0;
     this.controller2.userData.index = 1;
-    this.scene.add(this.controller1);
-    this.scene.add(this.controller2);
+    
+    // FIX: Add controllers to dolly ONLY, not to scene
+    // (Adding to both causes parent conflicts)
+    this.locomotion.dolly.add(this.controller1);
+    this.locomotion.dolly.add(this.controller2);
+    
     const grip1 = this.renderer.xr.getControllerGrip(0);
     const grip2 = this.renderer.xr.getControllerGrip(1);
     grip1.add(controllerModelFactory.createControllerModel(grip1));
     grip2.add(controllerModelFactory.createControllerModel(grip2));
     this.locomotion.dolly.add(grip1);
     this.locomotion.dolly.add(grip2);
+    
     this.leftHandController = this.controller1;
     this.rightHandController = this.controller2;
 
@@ -199,15 +228,10 @@ class VRBowlliardsGame {
       controller.addEventListener('connected', (event) => {
         if (event.data.handedness === 'left') this.leftHandController = controller;
         if (event.data.handedness === 'right') this.rightHandController = controller;
-        const grip = this.renderer.xr.getControllerGrip(controller === this.controller1 ? 0 : 1);
-        grip.add(controllerModelFactory.createControllerModel(grip));
-        this.locomotion.dolly.add(grip);
       });
     };
     handleConnection(this.controller1);
     handleConnection(this.controller2);
-    this.locomotion.dolly.add(this.controller1);
-    this.locomotion.dolly.add(this.controller2);
 
     const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.1)]);
     const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
@@ -285,8 +309,17 @@ class VRBowlliardsGame {
       this.poolTable, this 
     );
     this.rulesEngine = new BowlliardsRulesEngine();
+    console.log('[GAME] Creating Scoreboard...');
     this.scoreboard = new Scoreboard(this.scene); 
+    console.log('[GAME] Scoreboard created at position:', this.scoreboard.group.position);
+    console.log('[GAME] Scoreboard visible:', this.scoreboard.group.visible);
+    console.log('[GAME] Scoreboard in scene:', this.scene.children.includes(this.scoreboard.group));
+    
+    console.log('[GAME] Creating LeaderboardDisplay...');
     this.leaderboardDisplay = new LeaderboardDisplay(this.scene);
+    console.log('[GAME] LeaderboardDisplay created at position:', this.leaderboardDisplay.group.position);
+    console.log('[GAME] LeaderboardDisplay visible:', this.leaderboardDisplay.group.visible);
+    console.log('[GAME] LeaderboardDisplay in scene:', this.scene.children.includes(this.leaderboardDisplay.group));
     
     // Stats tracking system
     this.statsTracker = new StatsTracker();
@@ -1132,6 +1165,21 @@ class VRBowlliardsGame {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  window.game = new VRBowlliardsGame();
-  window.game.initGame(); 
+  console.log('[INIT] DOMContentLoaded fired');
+  try {
+    console.log('[INIT] Creating VRBowlliardsGame...');
+    window.game = new VRBowlliardsGame();
+    console.log('[INIT] VRBowlliardsGame created successfully');
+    console.log('[INIT] Calling initGame...');
+    window.game.initGame(); 
+    console.log('[INIT] initGame called successfully');
+  } catch (error) {
+    console.error('[INIT] FATAL ERROR during initialization:', error);
+    console.error('[INIT] Error stack:', error.stack);
+    // Display error on screen
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;padding:20px;z-index:9999;font-family:monospace;';
+    errorDiv.textContent = 'INIT ERROR: ' + error.message + ' - Check console for details';
+    document.body.appendChild(errorDiv);
+  }
 });

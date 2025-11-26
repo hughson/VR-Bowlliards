@@ -7,11 +7,214 @@ const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
 
+// ============================================
+// ADMIN PHYSICS SETTINGS
+// ============================================
+// Password from environment variable (set in Render dashboard)
+const ADMIN_PASSWORD = process.env.ADMIN_PHYSICS_PASSWORD || 'vrbowlliards2025';
+const PHYSICS_FILE = path.join(__dirname, 'physics-settings.json');
+
+// Firebase Admin SDK for persistent storage
+let firebaseAdmin = null;
+let firestoreDb = null;
+
+// Initialize Firebase Admin (if credentials available)
+async function initFirebaseAdmin() {
+  try {
+    // Check if firebase-admin is installed
+    firebaseAdmin = require('firebase-admin');
+    
+    // Check for service account credentials
+    const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+    
+    if (serviceAccountJson) {
+      // Parse from environment variable (Render)
+      const serviceAccount = JSON.parse(serviceAccountJson);
+      firebaseAdmin.initializeApp({
+        credential: firebaseAdmin.credential.cert(serviceAccount)
+      });
+      firestoreDb = firebaseAdmin.firestore();
+      console.log('[PHYSICS] Firebase Admin initialized from env variable');
+    } else if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
+      // Load from file path
+      firebaseAdmin.initializeApp({
+        credential: firebaseAdmin.credential.applicationDefault()
+      });
+      firestoreDb = firebaseAdmin.firestore();
+      console.log('[PHYSICS] Firebase Admin initialized from file');
+    } else {
+      console.log('[PHYSICS] No Firebase credentials - using local file storage');
+    }
+  } catch (e) {
+    console.log('[PHYSICS] Firebase Admin not available:', e.message);
+    console.log('[PHYSICS] Using local file storage as fallback');
+  }
+}
+
+// Load physics from Firestore or local file
+async function loadPhysicsSettings() {
+  // Try Firestore first
+  if (firestoreDb) {
+    try {
+      const doc = await firestoreDb.collection('settings').doc('physics').get();
+      if (doc.exists) {
+        console.log('[PHYSICS] Loaded settings from Firestore');
+        return doc.data();
+      }
+    } catch (e) {
+      console.error('[PHYSICS] Firestore read error:', e.message);
+    }
+  }
+  
+  // Fallback to local file
+  try {
+    if (fs.existsSync(PHYSICS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PHYSICS_FILE, 'utf8'));
+      console.log('[PHYSICS] Loaded settings from local file');
+      return data;
+    }
+  } catch (e) {
+    console.error('[PHYSICS] Local file read error:', e.message);
+  }
+  
+  console.log('[PHYSICS] Using default settings');
+  return getDefaultPhysics();
+}
+
+// Save physics to Firestore and local file
+async function savePhysicsSettings(settings) {
+  let savedToFirestore = false;
+  let savedToFile = false;
+  
+  // Save to Firestore
+  if (firestoreDb) {
+    try {
+      await firestoreDb.collection('settings').doc('physics').set(settings);
+      console.log('[PHYSICS] Saved to Firestore');
+      savedToFirestore = true;
+    } catch (e) {
+      console.error('[PHYSICS] Firestore write error:', e.message);
+    }
+  }
+  
+  // Also save to local file as backup
+  try {
+    fs.writeFileSync(PHYSICS_FILE, JSON.stringify(settings, null, 2));
+    console.log('[PHYSICS] Saved to local file');
+    savedToFile = true;
+  } catch (e) {
+    console.error('[PHYSICS] Local file write error:', e.message);
+  }
+  
+  return savedToFirestore || savedToFile;
+}
+
+// Default physics
+function getDefaultPhysics() {
+  return {
+    powerMultiplier: 12.7,
+    maxPower: 1.0,
+    minPower: 0.05,
+    verticalSpinSensitivity: 1.5,
+    englishSpinSensitivity: 2.0,
+    spinPowerScaling: 1.0,
+    feltFriction: 0.2,
+    slideThreshold: 0.1,
+    rollAcceleration: 2.0,
+    topspinFollowForce: 1.5,
+    backspinDrawForce: 2.0,
+    spinEffectThreshold: 0.15,
+    stopShotThreshold: 0.3,
+    cushionEnglishEffect: 0.6,
+    cushionSpeedThreshold: 0.3,
+    initialRollFactor: 0.3,
+    topspinAngularMultiplier: 50,
+    backspinAngularMultiplier: 50,
+    englishAngularMultiplier: 30,
+    spinDecayRate: 0.98,
+    angularDampingLow: 0.2,
+    angularDampingHigh: 0.15,
+    linearDampingLow: 0.2,
+    linearDampingHigh: 0.12,
+    slowSpeedThreshold: 0.5,
+    stopSpeedThreshold: 0.08,
+    stopAngularThreshold: 0.6,
+    ballRadius: 0.028,
+    ballMass: 0.17
+  };
+}
+
+// Current physics settings (in memory)
+let currentPhysics = getDefaultPhysics();
+
+// Initialize physics on startup
+async function initPhysics() {
+  await initFirebaseAdmin();
+  currentPhysics = await loadPhysicsSettings();
+  console.log('[PHYSICS] Initialization complete');
+}
+
+// Start initialization (don't block server startup)
+initPhysics().catch(e => console.error('[PHYSICS] Init error:', e));
+
 // Serve static files from the public directory
 app.use(express.static('public'));
 
 // Parse JSON bodies
 app.use(express.json());
+
+// ============================================
+// PHYSICS API ENDPOINTS
+// ============================================
+
+// Get current physics (public - all players can fetch)
+app.get('/api/physics', (req, res) => {
+  res.json(currentPhysics);
+});
+
+// Update physics (admin only)
+app.post('/api/physics', async (req, res) => {
+  const { password, settings } = req.body;
+  
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+  
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'Invalid settings' });
+  }
+  
+  // Merge with current settings
+  currentPhysics = { ...currentPhysics, ...settings };
+  
+  // Save to storage (Firestore + file)
+  await savePhysicsSettings(currentPhysics);
+  
+  // Broadcast to all connected game clients
+  io.emit('physicsUpdate', currentPhysics);
+  
+  console.log('[PHYSICS] Settings updated by admin');
+  res.json({ success: true, settings: currentPhysics });
+});
+
+// Reset physics to defaults (admin only)
+app.post('/api/physics/reset', async (req, res) => {
+  const { password } = req.body;
+  
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+  
+  currentPhysics = getDefaultPhysics();
+  await savePhysicsSettings(currentPhysics);
+  
+  // Broadcast to all connected game clients
+  io.emit('physicsUpdate', currentPhysics);
+  
+  console.log('[PHYSICS] Settings reset to defaults by admin');
+  res.json({ success: true, settings: currentPhysics });
+});
 
 // CORS proxy for Avaturn API
 app.get('/api/avaturn/avatars', async (req, res) => {
