@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { PhysicsEngine } from './physicsEngine.js';
 
 export class PoolTable {
   constructor(scene, physics, soundManager) {
@@ -7,11 +8,20 @@ export class PoolTable {
     this.physics = physics;
     this.soundManager = soundManager; 
     
+    // Initialize the physics engine
+    this.physicsEngine = new PhysicsEngine();
+    
+    // Load saved physics params from localStorage
+    this.loadPhysicsParams();
+    
     this.balls = [];
     this.pockets = [];
     this.pocketedThisShot = [];
     this.cueBallHitObject = false;
     this.cueBallPocketed = false;
+    
+    // Active spin tracking for cue ball
+    this.cueBallSpin = null;
     
     // --- Raycaster for anti-tunneling logic ---
     this.tunnelingRaycaster = new THREE.Raycaster();
@@ -45,8 +55,45 @@ export class PoolTable {
     this.setupCollisionTracking();
   }
 
+  // Load physics params from server (async)
+  async loadPhysicsParams() {
+    // First try to load from server
+    const loadedFromServer = await this.physicsEngine.loadFromServer();
+    
+    if (!loadedFromServer) {
+      // Fallback to localStorage
+      const saved = localStorage.getItem('vrBowlliardsPhysics');
+      if (saved) {
+        try {
+          const params = JSON.parse(saved);
+          Object.keys(params).forEach(key => {
+            this.physicsEngine.setParam(key, params[key]);
+          });
+          console.log('[PoolTable] Loaded physics params from localStorage (server unavailable)');
+        } catch (e) {
+          console.error('[PoolTable] Failed to load physics params:', e);
+        }
+      }
+    }
+  }
+  
+  // Setup Socket.IO listener for physics updates
+  setupPhysicsListener(socket) {
+    if (!socket) return;
+    
+    socket.on('physicsUpdate', (params) => {
+      console.log('[PoolTable] Received physics update from server');
+      this.physicsEngine.updateAllParams(params);
+    });
+  }
+  
+  // Get physics engine (for external access)
+  getPhysicsEngine() {
+    return this.physicsEngine;
+  }
+
   // ============================================================
-  // NETWORK STATE SYNC (Placed at top to ensure inclusion)
+  // NETWORK STATE SYNC
   // ============================================================
   
   exportState() {
@@ -71,7 +118,8 @@ export class PoolTable {
           velocity,
           angularVelocity
         };
-      })
+      }),
+      cueBallSpin: this.cueBallSpin
     };
   }
 
@@ -82,28 +130,29 @@ export class PoolTable {
       const ball = this.balls.find(b => b.userData.ballNumber === data.number);
       if (!ball) return;
 
-      // 1. Sync Visuals
       ball.position.set(data.position.x, data.position.y, data.position.z);
       ball.visible = data.visible;
       ball.userData.isPocketed = data.isPocketed;
 
-      // 2. Sync Physics
       if (ball.userData.physicsBody) {
-          const body = ball.userData.physicsBody;
-          body.position.set(data.position.x, data.position.y, data.position.z);
-          body.velocity.set(data.velocity.x, data.velocity.y, data.velocity.z);
-          body.angularVelocity.set(data.angularVelocity.x, data.angularVelocity.y, data.angularVelocity.z);
-          body.wakeUp();
+        const body = ball.userData.physicsBody;
+        body.position.set(data.position.x, data.position.y, data.position.z);
+        body.velocity.set(data.velocity.x, data.velocity.y, data.velocity.z);
+        body.angularVelocity.set(data.angularVelocity.x, data.angularVelocity.y, data.angularVelocity.z);
+        body.wakeUp();
       }
 
-      // 3. Sync Shadow
       if (ball.userData.shadowMesh) {
-          ball.userData.shadowMesh.visible = data.visible && !data.isPocketed;
-          if (ball.userData.shadowMesh.visible) {
-            ball.userData.shadowMesh.position.set(ball.position.x, this.tableHeight, ball.position.z);
-          }
+        ball.userData.shadowMesh.visible = data.visible && !data.isPocketed;
+        if (ball.userData.shadowMesh.visible) {
+          ball.userData.shadowMesh.position.set(ball.position.x, this.tableHeight, ball.position.z);
+        }
       }
     });
+    
+    if (stateData.cueBallSpin) {
+      this.cueBallSpin = stateData.cueBallSpin;
+    }
   }
 
   // ============================================================
@@ -175,6 +224,7 @@ export class PoolTable {
     ctx.fillRect(0, 128 + 8, 256, 8);
     return new THREE.CanvasTexture(canvas);
   }
+
 
   // ============================================================
   // TABLE CONSTRUCTION
@@ -285,71 +335,49 @@ export class PoolTable {
   }
 
   createRailPhysics() {
-    // Cushion physics - extended to reach closer to pockets
     const mat = this.physics.cushionMaterial;
-    const y = 0.95 + 0.04; // Height of cushions
+    const y = 0.95 + 0.04;
     
-    // Pocket positions and gaps
     const cornerPocketRadius = 0.052;
     const sidePocketRadius = 0.055;
-    const pocketGap = 0.01; // Small gap to leave around pocket opening
+    const pocketGap = 0.01;
     
-    // Helper to add cushion bodies
     const add = (w, h, d, x, z, n) => {
-      const b = new CANNON.Body({ 
-        mass: 0, 
-        material: mat, 
-        type: CANNON.Body.STATIC 
-      });
+      const b = new CANNON.Body({ mass: 0, material: mat, type: CANNON.Body.STATIC });
       b.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2)));
       b.position.set(x, y, z);
       b.userData = { isCushion: true, name: n };
       this.physics.world.addBody(b);
     };
     
-    // TOP RAIL (z = -0.615)
-    // Left segment: from left corner pocket to side pocket
     const topZ = -0.615;
-    const topLeftStart = -1.225 + cornerPocketRadius + pocketGap; // Start after corner pocket
-    const topLeftEnd = -sidePocketRadius - pocketGap; // End before side pocket
+    const topLeftStart = -1.225 + cornerPocketRadius + pocketGap;
+    const topLeftEnd = -sidePocketRadius - pocketGap;
     const topLeftWidth = topLeftEnd - topLeftStart;
     const topLeftCenter = (topLeftStart + topLeftEnd) / 2;
     add(topLeftWidth, 0.08, 0.04, topLeftCenter, topZ, 'top-left');
     
-    // Right segment: from side pocket to right corner pocket
     const topRightStart = sidePocketRadius + pocketGap;
     const topRightEnd = 1.225 - cornerPocketRadius - pocketGap;
     const topRightWidth = topRightEnd - topRightStart;
     const topRightCenter = (topRightStart + topRightEnd) / 2;
     add(topRightWidth, 0.08, 0.04, topRightCenter, topZ, 'top-right');
     
-    // BOTTOM RAIL (z = 0.615)
     const bottomZ = 0.615;
-    // Left segment
-    const bottomLeftWidth = topLeftWidth;
-    const bottomLeftCenter = topLeftCenter;
-    add(bottomLeftWidth, 0.08, 0.04, bottomLeftCenter, bottomZ, 'bottom-left');
+    add(topLeftWidth, 0.08, 0.04, topLeftCenter, bottomZ, 'bottom-left');
+    add(topRightWidth, 0.08, 0.04, topRightCenter, bottomZ, 'bottom-right');
     
-    // Right segment
-    const bottomRightWidth = topRightWidth;
-    const bottomRightCenter = topRightCenter;
-    add(bottomRightWidth, 0.08, 0.04, bottomRightCenter, bottomZ, 'bottom-right');
-    
-    // LEFT RAIL (x = -1.25)
     const leftX = -1.25;
-    // Top segment: from top corner to bottom corner
     const leftStart = -0.59 + cornerPocketRadius + pocketGap;
     const leftEnd = 0.59 - cornerPocketRadius - pocketGap;
     const leftDepth = leftEnd - leftStart;
     const leftCenter = (leftStart + leftEnd) / 2;
     add(0.04, 0.08, leftDepth, leftX, leftCenter, 'left');
     
-    // RIGHT RAIL (x = 1.25)
     const rightX = 1.25;
-    const rightDepth = leftDepth;
-    const rightCenter = leftCenter;
-    add(0.04, 0.08, rightDepth, rightX, rightCenter, 'right');
+    add(0.04, 0.08, leftDepth, rightX, leftCenter, 'right');
   }
+
 
   setupBalls() {
     this.balls.forEach(b => { this.scene.remove(b); if(b.userData.shadowMesh) this.scene.remove(b.userData.shadowMesh); this.physics.world.removeBody(b.userData.physicsBody); });
@@ -359,121 +387,218 @@ export class PoolTable {
     [[fx,0],[fx+sp*0.866,-sp/2],[fx+sp*0.866,sp/2],[fx+sp*0.866*2,-sp],[fx+sp*0.866*2,0],[fx+sp*0.866*2,sp],[fx+sp*0.866*3,-sp*1.5],[fx+sp*0.866*3,-sp/2],[fx+sp*0.866*3,sp/2],[fx+sp*0.866*3,sp*1.5]].forEach((p,i) => this.createBall(p[0], p[1], this.originalBallColors[i], i+1));
   }
   
+  // ============================================================
+  // COLLISION TRACKING WITH NEW PHYSICS
+  // ============================================================
+  
   setupCollisionTracking() {
     this.physics.world.addEventListener('beginContact', (e) => {
       const v = e.bodyA.velocity.distanceTo(e.bodyB.velocity);
       
-      // Check for ball-to-cushion collision FIRST (priority)
       let isCushionCollision = false;
       let ballBody = null;
+      let cushionBody = null;
       
       if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.userData?.isCushion) {
         isCushionCollision = true;
         ballBody = e.bodyA;
+        cushionBody = e.bodyB;
       } else if (e.bodyB.collisionFilterGroup === 1 && e.bodyA.userData?.isCushion) {
         isCushionCollision = true;
         ballBody = e.bodyB;
+        cushionBody = e.bodyA;
       }
       
+      // Sound for cushion hit
       if (isCushionCollision && ballBody && this.soundManager) {
-        // Play ONLY cushion sound for cushion collisions
         this.soundManager.playSound('cushionHit', new THREE.Vector3(ballBody.position.x, ballBody.position.y, ballBody.position.z), v * 1.5);
-      } else if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.collisionFilterGroup === 1 && this.soundManager) {
-        // Play ball-to-ball sound ONLY if it's NOT a cushion collision
+      } 
+      // Sound for ball-ball hit
+      else if (e.bodyA.collisionFilterGroup === 1 && e.bodyB.collisionFilterGroup === 1 && this.soundManager) {
         this.soundManager.playSound('ballHit', new THREE.Vector3((e.bodyA.position.x+e.bodyB.position.x)/2, (e.bodyA.position.y+e.bodyB.position.y)/2, (e.bodyA.position.z+e.bodyB.position.z)/2), v);
       }
 
+      // CUE BALL collision handling
       const cb = this.balls[0]?.userData.physicsBody;
       if (cb && (e.bodyA === cb || e.bodyB === cb)) {
-        const ob = e.bodyA === cb ? e.bodyB : e.bodyA;
-        const hit = this.balls.find(b => b.userData.physicsBody === ob);
-        if (hit && hit.userData.ballNumber > 0) {
+        const otherBody = e.bodyA === cb ? e.bodyB : e.bodyA;
+        
+        // Check if it's an object ball collision
+        const hitBall = this.balls.find(b => b.userData.physicsBody === otherBody);
+        if (hitBall && hitBall.userData.ballNumber > 0) {
           this.cueBallHitObject = true;
-          const s = cb.userData?.spin;
-          if (s && (Math.abs(s.vertical) > 0.05 || Math.abs(s.english) > 0.05)) setTimeout(() => this.applySpinEffects(cb, s, ob.position), 16);
+          
+          // Apply spin effects on object ball collision
+          if (this.cueBallSpin && (Math.abs(this.cueBallSpin.vertical) > 0.1 || Math.abs(this.cueBallSpin.english) > 0.1)) {
+            const collisionNormal = new CANNON.Vec3(
+              otherBody.position.x - cb.position.x,
+              0,
+              otherBody.position.z - cb.position.z
+            );
+            
+            // Schedule spin effect application (slight delay for physics to settle)
+            setTimeout(() => {
+              if (this.cueBallSpin) {
+                if (this.cueBallSpin.vertical < 0) {
+                  // Backspin (draw)
+                  this.physicsEngine.applyBackspinEffect(cb, this.cueBallSpin, collisionNormal);
+                } else if (this.cueBallSpin.vertical > 0) {
+                  // Topspin (follow)
+                  this.physicsEngine.applyTopspinEffect(cb, this.cueBallSpin, collisionNormal);
+                }
+                // Clear vertical spin after effect, but KEEP english for cushion rebounds
+                this.cueBallSpin.vertical = 0;
+                // Reduce power slightly (spin diminishes after collision)
+                this.cueBallSpin.power *= 0.8;
+              }
+            }, 16);
+          }
+        }
+        
+        // Check if it's a cushion collision
+        if (cushionBody && cushionBody.userData?.isCushion) {
+          if (this.cueBallSpin && Math.abs(this.cueBallSpin.english) > 0.1) {
+            setTimeout(() => {
+              if (this.cueBallSpin) {
+                this.physicsEngine.applyCushionEnglish(cb, this.cueBallSpin, cushionBody.userData.name);
+              }
+            }, 16);
+          }
         }
       }
-      this.checkCushionCollision(e.bodyA, e.bodyB);
     });
-  }
-  
-  applySpinEffects(cb, s, obPos) {
-    if (!cb || !s || !obPos) return;
-    const v = cb.velocity; const speed = Math.sqrt(v.x*v.x + v.z*v.z); const es = Math.max(speed, 2.0);
-    const iv = new CANNON.Vec3(obPos.x - cb.position.x, 0, obPos.z - cb.position.z); iv.normalize();
-    const vert = Math.max(-1, Math.min(1, s.vertical || 0)); const p = Math.max(0, Math.min(1, s.power || 0));
-    if (vert > 0.2) { const f = p * vert; const ef = es * (0.2 + 1.0 * f); v.x += iv.x * ef; v.z += iv.z * ef; }
-    if (vert < -0.2) { const d = p * Math.abs(vert); const ds = es * (0.4 + 1.3 * d); v.x -= iv.x * ds; v.z -= iv.z * ds; }
-    cb.wakeUp(); cb.userData.spin = null; 
-  }
-  
-  checkCushionCollision(bodyA, bodyB) {
-    const cb = this.balls[0]?.userData.physicsBody; if (!cb) return;
-    let c = null; if (bodyA === cb && bodyB.userData?.isCushion) c = bodyB; else if (bodyB === cb && bodyA.userData?.isCushion) c = bodyA;
-    if (!c) return;
-    const s = cb.userData?.spin; if (!s || Math.abs(s.english) < 0.1) return;
-    cb.userData.lastCushionHit = c.userData.name;
-    setTimeout(() => this.applyCushionEnglish(cb, s, c.userData.name), 16);
-  }
-  
-  applyCushionEnglish(cb, s, n) {
-    if (!cb || !s || !n) return;
-    const v = cb.velocity; const sp = Math.sqrt(v.x*v.x + v.z*v.z); if (sp < 0.5) return;
-    const es = s.english * sp * 0.5;
-    // Inverted signs to fix spin direction off cushions
-    if (n === 'left') v.z -= es; else if (n === 'right') v.z += es; else if (n.includes('top')) v.x -= es; else if (n.includes('bottom')) v.x += es;
   }
   
   getCueBall() { return this.balls[0]; }
   
   showCueBall() {
-      const cb = this.getCueBall();
-      if (cb) {
-          cb.visible = true; if (cb.userData.shadowMesh) cb.userData.shadowMesh.visible = true;
-          cb.userData.isPocketed = false; const b = cb.userData.physicsBody;
-          if (b.position.y < 0) { b.position.set(-0.64, this.tableHeight + 0.028, 0); b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); cb.position.copy(b.position); }
+    const cb = this.getCueBall();
+    if (cb) {
+      cb.visible = true; 
+      if (cb.userData.shadowMesh) cb.userData.shadowMesh.visible = true;
+      cb.userData.isPocketed = false; 
+      const b = cb.userData.physicsBody;
+      if (b.position.y < 0) { 
+        b.position.set(-0.64, this.tableHeight + 0.028, 0); 
+        b.velocity.set(0, 0, 0); 
+        b.angularVelocity.set(0, 0, 0); 
+        cb.position.copy(b.position); 
       }
+    }
   }
+  
   isCueBallPocketed() { return this.cueBallPocketed; }
   getPocketedBalls() { return this.pocketedThisShot.filter(n => n > 0); }
-  resetShotTracking() { this.pocketedThisShot = []; this.cueBallHitObject = false; this.cueBallPocketed = false; }
-
-  createBall(x, z, color, number) {
-    const r = 0.028; const g = new THREE.SphereGeometry(r, 32, 32);
-    const m = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3, metalness: 0.1 });
-    if (this.ballStyleSetting === 'bowling') {
-      if (number === 0) { m.map = this.createBowlingBallTexture(); m.color.set(0xffffff); } else { m.map = this.createBowlingPinTexture(); m.color.set(0xffffff); }
-      m.needsUpdate = true;
-    }
-    const b = new THREE.Mesh(g, m); b.userData.material = m; b.castShadow = false; b.receiveShadow = false; b.position.set(x, this.tableHeight + r, z); b.renderOrder = 4; 
-    const sg = new THREE.PlaneGeometry(r * 1.9, r * 1.9); const sm = new THREE.MeshBasicMaterial({ map: this.ballShadowTexture, transparent: true, depthWrite: false, opacity: 1.0, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0 });
-    const smesh = new THREE.Mesh(sg, sm); smesh.rotation.x = -Math.PI / 2; smesh.renderOrder = 3; b.userData.shadowMesh = smesh; this.scene.add(smesh);
-    
-    const shape = new CANNON.Sphere(r);
-    const body = new CANNON.Body({ mass: 0.17, shape: shape, material: this.physics.ballMaterial, linearDamping: 0.19, angularDamping: 0.19, ccdSpeedThreshold: 0.1, ccdIterations: 10 });
-    body.position.set(x, this.tableHeight + r, z); body.collisionFilterGroup = 1; body.collisionFilterMask = -1;
-    this.physics.world.addBody(body); b.userData.physicsBody = body; b.userData.ballNumber = number;
-    this.scene.add(b); this.balls.push(b);
+  resetShotTracking() { 
+    this.pocketedThisShot = []; 
+    this.cueBallHitObject = false; 
+    this.cueBallPocketed = false; 
+    this.cueBallSpin = null;
   }
 
-  shootCueBall(direction, power, spin) {
-    this.balls.forEach(b => { if (b.userData.physicsBody) b.userData.physicsBody.wakeUp(); });
-    const cb = this.balls[0]; const b = cb.userData.physicsBody;
-    cb.userData.isPocketed = false; cb.visible = true; if (b) b.wakeUp();
-    this.resetShotTracking();
-    if (this.soundManager) this.soundManager.playSound('cueHitSoft', cb.position.clone(), power * 10.0);
-    const nd = new THREE.Vector3(direction.x, 0, direction.z).normalize();
-    const f = power * 12.7; // Power set to 12.7
-    b.velocity.copy(new CANNON.Vec3(nd.x * f, 0, nd.z * f));
-    b.userData = b.userData || {}; b.userData.spin = { vertical: spin ? spin.vertical : 0, english: spin ? spin.english : 0, power: power };
-    
-    const r = 0.028; const rv = new THREE.Vector3(-nd.z, 0, nd.x).normalize(); const rs = f / r * 0.10; // Reduced from 0.3 to 0.10 for more slide/less roll
-    if (spin && (Math.abs(spin.vertical) > 0.05 || Math.abs(spin.english) > 0.05)) {
-      const ss = power * 40.0; const va = new THREE.Vector3(-nd.z, 0, nd.x).normalize();
-      b.angularVelocity.set(rv.x * rs + va.x * spin.vertical * ss, 0, rv.z * rs + va.z * spin.vertical * ss);
-    } else {
-      b.angularVelocity.set(rv.x * rs, 0, rv.z * rs);
+  createBall(x, z, color, number) {
+    const r = 0.028; 
+    const g = new THREE.SphereGeometry(r, 32, 32);
+    const m = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3, metalness: 0.1 });
+    if (this.ballStyleSetting === 'bowling') {
+      if (number === 0) { m.map = this.createBowlingBallTexture(); m.color.set(0xffffff); } 
+      else { m.map = this.createBowlingPinTexture(); m.color.set(0xffffff); }
+      m.needsUpdate = true;
     }
+    const b = new THREE.Mesh(g, m); 
+    b.userData.material = m; 
+    b.castShadow = false; 
+    b.receiveShadow = false; 
+    b.position.set(x, this.tableHeight + r, z); 
+    b.renderOrder = 4; 
+    
+    const sg = new THREE.PlaneGeometry(r * 1.9, r * 1.9); 
+    const sm = new THREE.MeshBasicMaterial({ map: this.ballShadowTexture, transparent: true, depthWrite: false, opacity: 1.0, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0 });
+    const smesh = new THREE.Mesh(sg, sm); 
+    smesh.rotation.x = -Math.PI / 2; 
+    smesh.renderOrder = 3; 
+    b.userData.shadowMesh = smesh; 
+    this.scene.add(smesh);
+    
+    const shape = new CANNON.Sphere(r);
+    const body = new CANNON.Body({ 
+      mass: this.physicsEngine.params.ballMass, 
+      shape: shape, 
+      material: this.physics.ballMaterial, 
+      linearDamping: 0.19, 
+      angularDamping: 0.19, 
+      ccdSpeedThreshold: 0.1, 
+      ccdIterations: 10 
+    });
+    body.position.set(x, this.tableHeight + r, z); 
+    body.collisionFilterGroup = 1; 
+    body.collisionFilterMask = -1;
+    this.physics.world.addBody(body); 
+    b.userData.physicsBody = body; 
+    b.userData.ballNumber = number;
+    this.scene.add(b); 
+    this.balls.push(b);
+  }
+
+
+  // ============================================================
+  // SHOOTING - NEW PHYSICS ENGINE
+  // ============================================================
+  
+  /**
+   * Shoot the cue ball using the new physics engine
+   * @param {THREE.Vector3} direction - Shot direction (normalized)
+   * @param {number} power - Shot power (0-1)
+   * @param {Object} spin - Spin object {vertical, english} from cueController
+   */
+  shootCueBall(direction, power, spin) {
+    // Wake up all balls
+    this.balls.forEach(b => { 
+      if (b.userData.physicsBody) b.userData.physicsBody.wakeUp(); 
+    });
+    
+    const cb = this.balls[0]; 
+    const body = cb.userData.physicsBody;
+    
+    cb.userData.isPocketed = false; 
+    cb.visible = true; 
+    if (body) body.wakeUp();
+    
+    this.resetShotTracking();
+    
+    // Play hit sound
+    if (this.soundManager) {
+      this.soundManager.playSound('cueHitSoft', cb.position.clone(), power * 10.0);
+    }
+    
+    // Normalize direction (ensure it's horizontal)
+    const nd = new THREE.Vector3(direction.x, 0, direction.z).normalize();
+    
+    // Calculate physics using the physics engine
+    const shotPhysics = this.physicsEngine.calculateShotPhysics(nd, power, spin || { vertical: 0, english: 0 });
+    
+    // Apply linear velocity
+    body.velocity.set(
+      shotPhysics.velocity.x,
+      shotPhysics.velocity.y,
+      shotPhysics.velocity.z
+    );
+    
+    // Apply angular velocity
+    body.angularVelocity.set(
+      shotPhysics.angularVelocity.x,
+      shotPhysics.angularVelocity.y,
+      shotPhysics.angularVelocity.z
+    );
+    
+    // Store spin for later collision effects
+    this.cueBallSpin = shotPhysics.spin;
+    
+    console.log('[PoolTable] Shot fired:', {
+      power: power.toFixed(3),
+      velocity: `(${shotPhysics.velocity.x.toFixed(2)}, ${shotPhysics.velocity.z.toFixed(2)})`,
+      spin: this.cueBallSpin
+    });
   }
   
   spotBalls(nums) {
@@ -487,29 +612,24 @@ export class PoolTable {
   }
   
   preventTunneling(delta) {
-      const cb = this.balls[0]; if (!cb) return;
-      const b = cb.userData.physicsBody; const s = b.velocity.length(); if (s < 5.0) return;
-      const d = b.velocity.clone().normalize(); const r = 0.028;
-      this.tunnelingRaycaster.set(cb.position, new THREE.Vector3(d.x, d.y, d.z)); this.tunnelingRaycaster.far = s * delta + r;
-      const hits = this.tunnelingRaycaster.intersectObjects(this.balls.filter(bb => bb.userData.ballNumber !== 0 && !bb.userData.isPocketed));
-      if (hits.length > 0) {
-          const sd = hits[0].distance - r - 0.001; if (sd < 0) return;
-          const sp = new THREE.Vector3().copy(cb.position).addScaledVector(new THREE.Vector3(d.x, d.y, d.z), sd);
-          b.position.set(sp.x, sp.y, sp.z); cb.position.copy(sp);
-          if (hits[0].object.userData.physicsBody) hits[0].object.userData.physicsBody.wakeUp();
-      }
+    const cb = this.balls[0]; if (!cb) return;
+    const b = cb.userData.physicsBody; const s = b.velocity.length(); if (s < 5.0) return;
+    const d = b.velocity.clone().normalize(); const r = 0.028;
+    this.tunnelingRaycaster.set(cb.position, new THREE.Vector3(d.x, d.y, d.z)); this.tunnelingRaycaster.far = s * delta + r;
+    const hits = this.tunnelingRaycaster.intersectObjects(this.balls.filter(bb => bb.userData.ballNumber !== 0 && !bb.userData.isPocketed));
+    if (hits.length > 0) {
+      const sd = hits[0].distance - r - 0.001; if (sd < 0) return;
+      const sp = new THREE.Vector3().copy(cb.position).addScaledVector(new THREE.Vector3(d.x, d.y, d.z), sd);
+      b.position.set(sp.x, sp.y, sp.z); cb.position.copy(sp);
+      if (hits[0].object.userData.physicsBody) hits[0].object.userData.physicsBody.wakeUp();
+    }
   }
-
-  // ============================================================
-  // HELPER FUNCTIONS (That were reported missing)
-  // ============================================================
 
   checkBallInPocket(position) {
     for (const pocket of this.pockets) {
       const dx = position.x - pocket.position.x;
       const dz = position.z - pocket.position.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
-      // Increased pocket tolerance to 1.20
       const effectiveRadius = pocket.radius * 1.20;
       
       if (distance < effectiveRadius || 
@@ -522,12 +642,8 @@ export class PoolTable {
 
   setFeltColor(hexColor) {
     const newColor = new THREE.Color(hexColor);
-    if (this.feltMaterial) {
-      this.feltMaterial.color.copy(newColor);
-    }
-    if (this.cushionMaterial) {
-      this.cushionMaterial.color.copy(newColor);
-    }
+    if (this.feltMaterial) { this.feltMaterial.color.copy(newColor); }
+    if (this.cushionMaterial) { this.cushionMaterial.color.copy(newColor); }
   }
 
   setBallStyle(style) {
@@ -537,13 +653,8 @@ export class PoolTable {
       const ballNum = ball.userData.ballNumber;
       const material = ball.userData.material;
       if (style === 'bowling') {
-        if (ballNum === 0) {
-          const texture = this.createBowlingBallTexture();
-          material.map = texture; material.color.set(0xffffff); material.needsUpdate = true;
-        } else {
-          const texture = this.createBowlingPinTexture();
-          material.map = texture; material.color.set(0xffffff); material.needsUpdate = true;
-        }
+        if (ballNum === 0) { material.map = this.createBowlingBallTexture(); material.color.set(0xffffff); material.needsUpdate = true; }
+        else { material.map = this.createBowlingPinTexture(); material.color.set(0xffffff); material.needsUpdate = true; }
       } else {
         material.map = null;
         if (ballNum === 0) material.color.set(0xffffff); 
@@ -553,51 +664,98 @@ export class PoolTable {
     });
   }
 
+
+  // ============================================================
+  // UPDATE LOOP - NEW PHYSICS ENGINE
+  // ============================================================
+
   update(delta = 1/60) {
     this.preventTunneling(delta);
+    
+    const pe = this.physicsEngine;
+    const params = pe.params;
+    
     this.balls.forEach(ball => {
       if (ball.position.y < -0.5 || ball.userData.isPocketed) return;
-      const b = ball.userData.physicsBody;
-      const v = b.velocity; const w = b.angularVelocity; const s = v.length(); const slip = Math.abs(s - w.length() * 0.028);
       
-      // Progressive damping that increases as ball slows down
-      if (s < 0.08) {
-        // Abrupt stop at very low speeds
-        b.linearDamping = 0.98; 
-        b.angularDamping = 0.98;
-      } else if (s < 0.5) {
-        // Gentle damping when slowing down (0.08 to 0.5 speed) - reduced to prevent cushion sticking
-        b.linearDamping = 0.20;
-        b.angularDamping = 0.20;
-      } else if (s < 1.5) {
-        // Light damping at medium speeds (0.5 to 1.5)
-        b.linearDamping = 0.22;
-        b.angularDamping = 0.20;
-      } else {
-        // Low damping for fast rolling or skidding
-        if (slip > 0.1) b.linearDamping = 0.28; else b.linearDamping = 0.13;
-        b.angularDamping = 0.19;
+      const body = ball.userData.physicsBody;
+      const vx = body.velocity.x;
+      const vz = body.velocity.z;
+      const speed = Math.sqrt(vx * vx + vz * vz);
+      
+      // Apply slide-to-roll physics for cue ball
+      if (ball.userData.ballNumber === 0 && speed > params.stopSpeedThreshold) {
+        pe.applySlideToRoll(body, delta);
       }
-      if (ball.userData.ballNumber === 0) b.angularVelocity.y = 0; 
-      ball.position.copy(b.position); ball.quaternion.copy(b.quaternion);
-      if (ball.userData.shadowMesh) { ball.userData.shadowMesh.position.set(ball.position.x, this.tableHeight, ball.position.z); }
-      if (v.lengthSquared() < 0.06 && w.lengthSquared() < 0.36) { b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0); }
       
+      // Dynamic damping based on speed
+      const damping = pe.getDamping(speed);
+      body.linearDamping = damping.linear;
+      body.angularDamping = damping.angular;
+      
+      // Zero Y angular velocity for cue ball (no curve during travel)
+      if (ball.userData.ballNumber === 0) {
+        body.angularVelocity.y = 0;
+      }
+      
+      // Update visual position
+      ball.position.copy(body.position);
+      ball.quaternion.copy(body.quaternion);
+      
+      // Update shadow
+      if (ball.userData.shadowMesh) {
+        ball.userData.shadowMesh.position.set(ball.position.x, this.tableHeight, ball.position.z);
+      }
+      
+      // Check if ball should stop completely
+      if (pe.shouldStop(body)) {
+        body.velocity.set(0, 0, 0);
+        body.angularVelocity.set(0, 0, 0);
+      }
+      
+      // Check for out-of-bounds (edge pocketing)
       if (!ball.userData.isPocketed) {
-        if (Math.abs(b.position.x) > 1.4 || Math.abs(b.position.z) > 0.8) {
-          if (ball.userData.ballNumber === 0) this.cueBallPocketed = true; else if (!this.pocketedThisShot.includes(ball.userData.ballNumber)) this.pocketedThisShot.push(ball.userData.ballNumber);
-          ball.userData.isPocketed = true; b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0); b.position.y = -2; ball.position.y = -2;
-          if (ball.userData.shadowMesh) ball.userData.shadowMesh.visible = false; if (ball.userData.ballNumber > 0) ball.visible = false;
+        if (Math.abs(body.position.x) > 1.4 || Math.abs(body.position.z) > 0.8) {
+          if (ball.userData.ballNumber === 0) this.cueBallPocketed = true; 
+          else if (!this.pocketedThisShot.includes(ball.userData.ballNumber)) this.pocketedThisShot.push(ball.userData.ballNumber);
+          ball.userData.isPocketed = true; 
+          body.velocity.set(0, 0, 0); 
+          body.angularVelocity.set(0, 0, 0); 
+          body.position.y = -2; 
+          ball.position.y = -2;
+          if (ball.userData.shadowMesh) ball.userData.shadowMesh.visible = false; 
+          if (ball.userData.ballNumber > 0) ball.visible = false;
           return; 
         }
       }
-      // This line was crashing because checkBallInPocket was missing. Now it is present.
-      if (this.checkBallInPocket(b.position)) {
-          if (this.soundManager) { const ps = b.velocity.length(); this.soundManager.playSound(ps > 2.0 ? 'pocketHard' : 'pocketSoft', ball.position.clone(), ps * 3.0); }
-          if (ball.userData.ballNumber === 0) this.cueBallPocketed = true; else if (!this.pocketedThisShot.includes(ball.userData.ballNumber)) this.pocketedThisShot.push(ball.userData.ballNumber);
-          b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0); b.position.y = -2; ball.position.y = -2; ball.userData.isPocketed = true;
-          if (ball.userData.shadowMesh) ball.userData.shadowMesh.visible = false; if (ball.userData.ballNumber > 0) ball.visible = false;
+      
+      // Check for pocket
+      if (this.checkBallInPocket(body.position)) {
+        if (this.soundManager) { 
+          const ps = body.velocity.length(); 
+          this.soundManager.playSound(ps > 2.0 ? 'pocketHard' : 'pocketSoft', ball.position.clone(), ps * 3.0); 
+        }
+        if (ball.userData.ballNumber === 0) this.cueBallPocketed = true; 
+        else if (!this.pocketedThisShot.includes(ball.userData.ballNumber)) this.pocketedThisShot.push(ball.userData.ballNumber);
+        body.velocity.set(0, 0, 0); 
+        body.angularVelocity.set(0, 0, 0); 
+        body.position.y = -2; 
+        ball.position.y = -2; 
+        ball.userData.isPocketed = true;
+        if (ball.userData.shadowMesh) ball.userData.shadowMesh.visible = false; 
+        if (ball.userData.ballNumber > 0) ball.visible = false;
       }
     });
+    
+    // Decay stored spin over time
+    if (this.cueBallSpin) {
+      this.cueBallSpin.vertical *= params.spinDecayRate;
+      this.cueBallSpin.english *= params.spinDecayRate;
+      
+      // Clear spin if it's decayed too much
+      if (Math.abs(this.cueBallSpin.vertical) < 0.01 && Math.abs(this.cueBallSpin.english) < 0.01) {
+        this.cueBallSpin = null;
+      }
+    }
   }
 }

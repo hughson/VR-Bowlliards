@@ -116,19 +116,25 @@ export class BallInHand {
     const cueBall = this.poolTable.getCueBall();
     if (!cueBall) return;
     
+    // Table bounds (inside cushions, accounting for ball radius)
+    // Physics cushions: X at ±1.25 (0.04 thick), Z at ±0.615 (0.04 thick)
+    // Inner cushion edge: X = ±1.23, Z = ±0.595
+    const ballRadius = 0.028;
+    const maxX = 1.23 - ballRadius;  // 1.202
+    const maxZ = 0.595 - ballRadius; // 0.567
+    
     let x = pos.x;
     let z = pos.z;
     
     // 1. Clamp to table bounds
-    x = Math.max(-1.2, Math.min(1.2, x));
-    z = Math.max(-0.6, Math.min(0.6, z));
+    x = Math.max(-maxX, Math.min(maxX, x));
+    z = Math.max(-maxZ, Math.min(maxZ, z));
     
     if (this.behindHeadString) {
       x = Math.min(x, this.headStringX);
     }
 
     // 2. Push-Out Logic (Collision Resolution)
-    const ballRadius = 0.028;
     const minSeparation = (ballRadius * 2) + 0.002; 
     const minSepSq = minSeparation * minSeparation;
     const activeBalls = this.poolTable.balls;
@@ -153,9 +159,9 @@ export class BallInHand {
         }
     }
 
-    // 3. Re-Clamp
-    x = Math.max(-1.2, Math.min(1.2, x));
-    z = Math.max(-0.6, Math.min(0.6, z));
+    // 3. Re-Clamp (using same safe bounds)
+    x = Math.max(-maxX, Math.min(maxX, x));
+    z = Math.max(-maxZ, Math.min(maxZ, z));
     if (this.behindHeadString) x = Math.min(x, this.headStringX);
     
     const y = this.poolTable.tableHeight + 0.028;

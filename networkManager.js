@@ -420,6 +420,15 @@ export class NetworkManager {
       this.isConnected = false;
       this.game.showNotification('Lost connection to server', 3000);
     });
+    
+    // NEW: Physics update from admin
+    this.socket.on('physicsUpdate', (params) => {
+      console.log('[NETWORK] Received physics update from admin');
+      if (this.game.poolTable && this.game.poolTable.physicsEngine) {
+        this.game.poolTable.physicsEngine.updateAllParams(params);
+        this.game.showNotification('Physics settings updated!', 2000);
+      }
+    });
   }
 
   joinRoom(roomCode) {

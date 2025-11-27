@@ -88,6 +88,11 @@
     .stat-value { 
       color: #00ff88; font-family: 'Orbitron', monospace;
       font-weight: 700; font-size: 18px; text-align: right;
+      width: 150px;
+    }
+    .stat-header {
+      text-align: right !important;
+      width: 150px;
     }
     .loading {
       text-align: center; padding: 50px;
@@ -184,8 +189,8 @@
       let html = `<table>
         <thead><tr>
           <th class="rank">RANK</th>
-          <th>PLAYER</th>
-          <th style="text-align:right">${label.column}</th>
+          <th class="player-name">PLAYER</th>
+          <th class="stat-header">${label.column}</th>
         </tr></thead><tbody>`;
       
       data.forEach((entry, i) => {
@@ -193,7 +198,7 @@
         html += `<tr>
           <td class="rank ${rankClass}">${i + 1}</td>
           <td class="player-name">${entry.name}</td>
-          <td class="stat-value">${entry.value}</td>
+          <td class="stat-header stat-value">${entry.value}</td>
         </tr>`;
       });
       

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR Bowlliards - Admin Physics</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { text-align: center; color: #ff6b6b; margin-bottom: 10px; font-size: 2em; }
+    .subtitle { text-align: center; color: #888; margin-bottom: 20px; }
+    
+    /* Login overlay */
+    .login-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.95);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .login-box {
+      background: #1a1a2e; padding: 40px; border-radius: 12px;
+      border: 2px solid #ff6b6b; text-align: center; max-width: 400px;
+    }
+    .login-box h2 { color: #ff6b6b; margin-bottom: 20px; }
+    .login-box input {
+      width: 100%; padding: 12px; margin-bottom: 15px;
+      background: rgba(255,255,255,0.1); border: 1px solid #444;
+      border-radius: 8px; color: white; font-size: 16px;
+    }
+    .login-box button {
+      width: 100%; padding: 12px; background: #ff6b6b;
+      border: none; border-radius: 8px; color: white;
+      font-size: 16px; font-weight: bold; cursor: pointer;
+    }
+    .login-box button:hover { background: #ff5252; }
+    .login-error { color: #ff6b6b; margin-top: 10px; }
+    
+    .hidden { display: none !important; }
+    
+    .status-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(255,107,107,0.2); padding: 10px 20px;
+      border-radius: 8px; margin-bottom: 20px; border: 1px solid #ff6b6b;
+    }
+    .status-bar .admin-badge { color: #ff6b6b; font-weight: bold; }
+    .status-bar .connected { color: #4caf50; }
+    
+    .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+    .section {
+      background: rgba(255, 255, 255, 0.05); border-radius: 12px;
+      padding: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .section h2 {
+      color: #ff6b6b; margin-bottom: 15px; font-size: 1.1em;
+      border-bottom: 1px solid rgba(255,107,107,0.3); padding-bottom: 8px;
+    }
+    .param-row { margin-bottom: 15px; }
+    .param-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .param-name { font-size: 0.9em; color: #ccc; }
+    .param-value {
+      font-family: 'Courier New', monospace; background: rgba(0,0,0,0.3);
+      padding: 2px 8px; border-radius: 4px; color: #4caf50; font-size: 0.85em;
+    }
+    .param-slider {
+      width: 100%; height: 6px; border-radius: 3px;
+      background: rgba(255,255,255,0.1); outline: none;
+      -webkit-appearance: none; cursor: pointer;
+    }
+    .param-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px;
+      border-radius: 50%; background: #ff6b6b; cursor: pointer;
+    }
+    .param-description { font-size: 0.75em; color: #666; margin-top: 3px; font-style: italic; }
+    
+    .actions { display: flex; gap: 10px; margin-top: 30px; flex-wrap: wrap; justify-content: center; }
+    button {
+      padding: 12px 24px; border: none; border-radius: 8px;
+      cursor: pointer; font-size: 0.9em; font-weight: bold; transition: all 0.2s;
+    }
+    .btn-primary { background: #ff6b6b; color: white; }
+    .btn-secondary { background: rgba(255,255,255,0.1); color: #ccc; border: 1px solid rgba(255,255,255,0.2); }
+    .btn-danger { background: #e74c3c; color: white; }
+    button:hover { transform: translateY(-2px); filter: brightness(1.1); }
+    
+    .presets { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; justify-content: center; }
+    .preset-btn {
+      padding: 8px 16px; background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,107,107,0.5); border-radius: 20px;
+      color: #ff6b6b; cursor: pointer; font-size: 0.85em;
+    }
+    .preset-btn:hover { background: rgba(255,107,107,0.2); }
+    
+    .export-area { margin-top: 20px; }
+    textarea {
+      width: 100%; height: 120px; background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+      color: #e0e0e0; font-family: 'Courier New', monospace;
+      font-size: 0.8em; padding: 10px; resize: vertical;
+    }
+    
+    .save-indicator {
+      position: fixed; top: 20px; right: 20px; padding: 15px 25px;
+      background: #4caf50; color: white; border-radius: 8px;
+      font-weight: bold; opacity: 0; transition: opacity 0.3s;
+    }
+    .save-indicator.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div class="login-overlay" id="login-overlay">
+    <div class="login-box">
+      <h2>🔐 Admin Access</h2>
+      <p style="color: #888; margin-bottom: 20px;">Enter admin password to access physics settings</p>
+      <input type="password" id="password-input" placeholder="Password" onkeypress="if(event.key==='Enter')attemptLogin()">
+      <button onclick="attemptLogin()">Login</button>
+      <div class="login-error hidden" id="login-error">Invalid password</div>
+    </div>
+  </div>
+
+  <!-- Save Indicator -->
+  <div class="save-indicator" id="save-indicator">✅ Saved & Broadcast to All Players</div>
+
+  <!-- Main Content (hidden until logged in) -->
+  <div class="container hidden" id="main-content">
+    <h1>🔧 Admin Physics Settings</h1>
+    <p class="subtitle">Changes apply globally to ALL players in real-time</p>
+    
+    <div class="status-bar">
+      <span class="admin-badge">🔐 ADMIN MODE</span>
+      <span id="player-count">Players online: --</span>
+    </div>
+    
+    <div class="presets">
+      <button class="preset-btn" onclick="loadPreset('realistic')">🎯 Realistic</button>
+      <button class="preset-btn" onclick="loadPreset('arcade')">🕹️ Arcade</button>
+      <button class="preset-btn" onclick="loadPreset('tournament')">🏆 Tournament</button>
+      <button class="preset-btn" onclick="loadPreset('practice')">📚 Practice</button>
+    </div>
+    
+    <div class="sections" id="params-container"></div>
+    
+    <div class="actions">
+      <button class="btn-primary" onclick="saveToServer()">💾 Save & Apply to All Players</button>
+      <button class="btn-secondary" onclick="exportParams()">📤 Export JSON</button>
+      <button class="btn-secondary" onclick="importParams()">📥 Import JSON</button>
+      <button class="btn-danger" onclick="resetDefaults()">🔄 Reset Defaults</button>
+    </div>
+    
+    <div class="export-area">
+      <textarea id="json-area" placeholder="JSON export/import area..."></textarea>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let adminPassword = '';
+    let currentParams = {};
+    let socket = null;
+    
+    // Parameter definitions with EXPANDED RANGES (current values are now middle-of-road)
+    const paramDefs = {
+      // Shot Power - expanded ranges
+      powerMultiplier: { section: 'Shot Power', min: 5, max: 50, step: 1, desc: 'Base force multiplier (default: 25)' },
+      maxPower: { section: 'Shot Power', min: 0.5, max: 4, step: 0.1, desc: 'Maximum power cap (default: 2)' },
+      minPower: { section: 'Shot Power', min: 0.001, max: 0.05, step: 0.001, desc: 'Minimum power threshold (default: 0.01)' },
+      
+      // Spin Sensitivity - expanded ranges
+      verticalSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 6, step: 0.1, desc: 'Vertical offset → spin (default: 3)' },
+      englishSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 8, step: 0.1, desc: 'Horizontal offset → spin (default: 4)' },
+      spinPowerScaling: { section: 'Spin Sensitivity', min: 0.5, max: 4, step: 0.1, desc: 'Power effect on spin (default: 2)' },
+      
+      // Ball-Felt Friction - tighter ranges centered on low values
+      feltFriction: { section: 'Ball-Felt Friction', min: 0.01, max: 0.15, step: 0.005, desc: 'Slide-to-roll friction (default: 0.07)' },
+      slideThreshold: { section: 'Ball-Felt Friction', min: 0.001, max: 0.05, step: 0.001, desc: 'Sliding vs rolling threshold (default: 0.01)' },
+      rollAcceleration: { section: 'Ball-Felt Friction', min: 1, max: 6, step: 0.1, desc: 'Slide → roll conversion speed (default: 3.1)' },
+      
+      // Spin Effects - expanded ranges
+      topspinFollowForce: { section: 'Spin Effects', min: 0.5, max: 8, step: 0.1, desc: 'Topspin follow-through (default: 4)' },
+      backspinDrawForce: { section: 'Spin Effects', min: 0.5, max: 10, step: 0.1, desc: 'Backspin draw-back (default: 5)' },
+      spinEffectThreshold: { section: 'Spin Effects', min: 0.01, max: 0.1, step: 0.005, desc: 'Min spin for effects (default: 0.05)' },
+      stopShotThreshold: { section: 'Spin Effects', min: 0.02, max: 0.2, step: 0.01, desc: 'Backspin stop vs draw (default: 0.1)' },
+      
+      // English (Cushion) - expanded ranges
+      cushionEnglishEffect: { section: 'English (Cushion)', min: 0.1, max: 3, step: 0.05, desc: 'English on cushion rebound (default: 1.5)' },
+      cushionSpeedThreshold: { section: 'English (Cushion)', min: 0.02, max: 0.2, step: 0.01, desc: 'Min speed for english (default: 0.1)' },
+      
+      // Angular Velocity - expanded ranges
+      initialRollFactor: { section: 'Angular Velocity', min: 0, max: 1, step: 0.05, desc: 'Initial roll (0=slide, 1=roll) (default: 0.9)' },
+      topspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 180, step: 5, desc: 'Topspin angular vel (default: 90)' },
+      backspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 200, step: 5, desc: 'Backspin angular vel (default: 100)' },
+      englishAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 160, step: 5, desc: 'English angular vel (default: 80)' },
+      
+      // Decay & Damping
+      spinDecayRate: { section: 'Decay & Damping', min: 0.97, max: 1, step: 0.001, desc: 'Spin decay per frame (default: 0.985)' },
+      angularDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Angular damp (slow) (default: 0.2)' },
+      angularDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.3, step: 0.01, desc: 'Angular damp (fast) (default: 0.15)' },
+      linearDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Linear damp (slow) (default: 0.2)' },
+      linearDampingHigh: { section: 'Decay & Damping', min: 0.02, max: 0.25, step: 0.01, desc: 'Linear damp (fast) (default: 0.12)' },
+      
+      // Speed Thresholds
+      slowSpeedThreshold: { section: 'Speed Thresholds', min: 0.1, max: 1, step: 0.05, desc: 'Slow ball threshold (default: 0.5)' },
+      stopSpeedThreshold: { section: 'Speed Thresholds', min: 0.02, max: 0.16, step: 0.01, desc: 'Stop ball threshold (default: 0.08)' },
+      stopAngularThreshold: { section: 'Speed Thresholds', min: 0.1, max: 1.2, step: 0.05, desc: 'Stop rotation threshold (default: 0.6)' },
+    };
+
+    // Presets - adjusted for new ranges (current settings are the new "balanced" middle)
+    const presets = {
+      realistic: {
+        // Lower power, subtle spin - more like real pool
+        powerMultiplier: 15, maxPower: 1.2, minPower: 0.02,
+        verticalSpinSensitivity: 2.0, englishSpinSensitivity: 2.5, spinPowerScaling: 1.2,
+        feltFriction: 0.08, slideThreshold: 0.015, rollAcceleration: 2.5,
+        topspinFollowForce: 2.5, backspinDrawForce: 3.0, spinEffectThreshold: 0.06, stopShotThreshold: 0.12,
+        cushionEnglishEffect: 1.0, cushionSpeedThreshold: 0.12,
+        initialRollFactor: 0.5, topspinAngularMultiplier: 60, backspinAngularMultiplier: 70, englishAngularMultiplier: 50,
+        spinDecayRate: 0.982, angularDampingLow: 0.22, angularDampingHigh: 0.16, linearDampingLow: 0.22, linearDampingHigh: 0.14,
+        slowSpeedThreshold: 0.55, stopSpeedThreshold: 0.09, stopAngularThreshold: 0.65
+      },
+      arcade: {
+        // Higher power, exaggerated spin effects - fun and responsive
+        powerMultiplier: 35, maxPower: 3.0, minPower: 0.008,
+        verticalSpinSensitivity: 4.5, englishSpinSensitivity: 6.0, spinPowerScaling: 2.8,
+        feltFriction: 0.05, slideThreshold: 0.008, rollAcceleration: 4.0,
+        topspinFollowForce: 6.0, backspinDrawForce: 7.5, spinEffectThreshold: 0.03, stopShotThreshold: 0.08,
+        cushionEnglishEffect: 2.2, cushionSpeedThreshold: 0.08,
+        initialRollFactor: 0.95, topspinAngularMultiplier: 140, backspinAngularMultiplier: 160, englishAngularMultiplier: 120,
+        spinDecayRate: 0.992, angularDampingLow: 0.12, angularDampingHigh: 0.08, linearDampingLow: 0.12, linearDampingHigh: 0.08,
+        slowSpeedThreshold: 0.35, stopSpeedThreshold: 0.05, stopAngularThreshold: 0.4
+      },
+      tournament: {
+        // Precise, controlled - for competitive play
+        powerMultiplier: 20, maxPower: 1.5, minPower: 0.015,
+        verticalSpinSensitivity: 2.5, englishSpinSensitivity: 3.0, spinPowerScaling: 1.5,
+        feltFriction: 0.06, slideThreshold: 0.012, rollAcceleration: 2.8,
+        topspinFollowForce: 3.0, backspinDrawForce: 3.5, spinEffectThreshold: 0.055, stopShotThreshold: 0.11,
+        cushionEnglishEffect: 1.2, cushionSpeedThreshold: 0.11,
+        initialRollFactor: 0.7, topspinAngularMultiplier: 75, backspinAngularMultiplier: 85, englishAngularMultiplier: 65,
+        spinDecayRate: 0.984, angularDampingLow: 0.2, angularDampingHigh: 0.14, linearDampingLow: 0.2, linearDampingHigh: 0.12,
+        slowSpeedThreshold: 0.5, stopSpeedThreshold: 0.08, stopAngularThreshold: 0.6
+      },
+      practice: {
+        // Enhanced feedback - see spin effects clearly for learning
+        powerMultiplier: 25, maxPower: 2.0, minPower: 0.01,
+        verticalSpinSensitivity: 4.0, englishSpinSensitivity: 5.0, spinPowerScaling: 2.5,
+        feltFriction: 0.07, slideThreshold: 0.01, rollAcceleration: 3.1,
+        topspinFollowForce: 5.0, backspinDrawForce: 6.0, spinEffectThreshold: 0.04, stopShotThreshold: 0.09,
+        cushionEnglishEffect: 1.8, cushionSpeedThreshold: 0.09,
+        initialRollFactor: 0.9, topspinAngularMultiplier: 110, backspinAngularMultiplier: 120, englishAngularMultiplier: 100,
+        spinDecayRate: 0.988, angularDampingLow: 0.18, angularDampingHigh: 0.12, linearDampingLow: 0.18, linearDampingHigh: 0.1,
+        slowSpeedThreshold: 0.45, stopSpeedThreshold: 0.07, stopAngularThreshold: 0.55
+      }
+    };
+    
+    // Default values (your current tuned settings - middle of road)
+    const defaultParams = {
+      powerMultiplier: 25,
+      maxPower: 2,
+      minPower: 0.01,
+      verticalSpinSensitivity: 3,
+      englishSpinSensitivity: 4,
+      spinPowerScaling: 2,
+      feltFriction: 0.07,
+      slideThreshold: 0.01,
+      rollAcceleration: 3.1,
+      topspinFollowForce: 4,
+      backspinDrawForce: 5,
+      spinEffectThreshold: 0.05,
+      stopShotThreshold: 0.1,
+      cushionEnglishEffect: 1.5,
+      cushionSpeedThreshold: 0.1,
+      initialRollFactor: 0.9,
+      topspinAngularMultiplier: 90,
+      backspinAngularMultiplier: 100,
+      englishAngularMultiplier: 80,
+      spinDecayRate: 0.985,
+      angularDampingLow: 0.2,
+      angularDampingHigh: 0.15,
+      linearDampingLow: 0.2,
+      linearDampingHigh: 0.12,
+      slowSpeedThreshold: 0.5,
+      stopSpeedThreshold: 0.08,
+      stopAngularThreshold: 0.6,
+      ballRadius: 0.028,
+      ballMass: 0.17
+    };
+    
+    // Login
+    async function attemptLogin() {
+      const password = document.getElementById('password-input').value;
+      
+      // Verify password by trying to fetch current physics
+      try {
+        const response = await fetch('/api/physics');
+        if (response.ok) {
+          currentParams = await response.json();
+          adminPassword = password;
+          
+          document.getElementById('login-overlay').classList.add('hidden');
+          document.getElementById('main-content').classList.remove('hidden');
+          
+          buildUI();
+          connectSocket();
+        }
+      } catch (e) {
+        document.getElementById('login-error').classList.remove('hidden');
+      }
+    }
+    
+    // Connect to Socket.IO for live updates
+    function connectSocket() {
+      socket = io();
+      
+      socket.on('connect', () => {
+        console.log('[ADMIN] Connected to server');
+      });
+      
+      socket.on('playerCount', (data) => {
+        document.getElementById('player-count').textContent = `Players online: ${data.count}`;
+      });
+      
+      socket.on('physicsUpdate', (params) => {
+        console.log('[ADMIN] Physics update received');
+        currentParams = params;
+        buildUI();
+      });
+      
+      socket.emit('requestPlayerCount');
+    }
+
+    // Build UI
+    function buildUI() {
+      const container = document.getElementById('params-container');
+      container.innerHTML = '';
+      
+      const sections = {};
+      Object.keys(paramDefs).forEach(key => {
+        const def = paramDefs[key];
+        if (!sections[def.section]) sections[def.section] = [];
+        sections[def.section].push({ key, ...def });
+      });
+      
+      Object.keys(sections).forEach(sectionName => {
+        const section = document.createElement('div');
+        section.className = 'section';
+        section.innerHTML = `<h2>${sectionName}</h2>`;
+        
+        sections[sectionName].forEach(param => {
+          const value = currentParams[param.key] || 0;
+          const row = document.createElement('div');
+          row.className = 'param-row';
+          row.innerHTML = `
+            <div class="param-label">
+              <span class="param-name">${param.key}</span>
+              <span class="param-value" id="val-${param.key}">${value.toFixed(3)}</span>
+            </div>
+            <input type="range" class="param-slider" id="slider-${param.key}"
+              min="${param.min}" max="${param.max}" step="${param.step}" value="${value}"
+              oninput="updateParam('${param.key}', this.value)">
+            <div class="param-description">${param.desc}</div>
+          `;
+          section.appendChild(row);
+        });
+        
+        container.appendChild(section);
+      });
+    }
+    
+    // Update parameter locally
+    function updateParam(key, value) {
+      currentParams[key] = parseFloat(value);
+      document.getElementById(`val-${key}`).textContent = parseFloat(value).toFixed(3);
+    }
+    
+    // Save to server and broadcast
+    async function saveToServer() {
+      try {
+        const response = await fetch('/api/physics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: adminPassword, settings: currentParams })
+        });
+        
+        if (response.ok) {
+          showSaveIndicator();
+        } else {
+          const err = await response.json();
+          alert('Error: ' + err.error);
+        }
+      } catch (e) {
+        alert('Failed to save: ' + e.message);
+      }
+    }
+    
+    function showSaveIndicator() {
+      const indicator = document.getElementById('save-indicator');
+      indicator.classList.add('show');
+      setTimeout(() => indicator.classList.remove('show'), 2000);
+    }
+    
+    // Presets
+    function loadPreset(name) {
+      if (presets[name]) {
+        currentParams = { ...currentParams, ...presets[name] };
+        buildUI();
+      }
+    }
+    
+    // Reset to defaults (your current tuned settings)
+    async function resetDefaults() {
+      if (!confirm('Reset ALL physics to defaults (your tuned middle-of-road settings)?')) return;
+      
+      try {
+        const response = await fetch('/api/physics/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: adminPassword })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          currentParams = data.settings;
+          buildUI();
+          showSaveIndicator();
+        }
+      } catch (e) {
+        // If server reset fails, use local defaults
+        currentParams = { ...defaultParams };
+        buildUI();
+        alert('Reset to defaults locally. Click "Save & Apply" to send to all players.');
+      }
+    }
+    
+    // Export/Import
+    function exportParams() {
+      document.getElementById('json-area').value = JSON.stringify(currentParams, null, 2);
+    }
+    
+    function importParams() {
+      try {
+        const imported = JSON.parse(document.getElementById('json-area').value);
+        currentParams = { ...currentParams, ...imported };
+        buildUI();
+        alert('Imported! Click "Save & Apply" to send to all players.');
+      } catch (e) {
+        alert('Invalid JSON: ' + e.message);
+      }
+    }
+    
+    // Focus password field on load
+    document.getElementById('password-input').focus();
+  </script>
+</body>
+</html>
