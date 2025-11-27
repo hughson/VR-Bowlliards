@@ -14,54 +14,54 @@ export class PhysicsEngine {
     this.loadedFromServer = false;
     
     // ============================================
-    // SHOT POWER SETTINGS
+    // DEFAULT PHYSICS PARAMETERS (tuned middle-of-road values)
     // ============================================
     this.params = {
       // Power
-      powerMultiplier: 12.7,        // Base force multiplier for shots
-      maxPower: 1.0,                // Maximum power (0-1 scale)
-      minPower: 0.05,               // Minimum power threshold
+      powerMultiplier: 25,          // Base force multiplier for shots
+      maxPower: 2,                  // Maximum power cap
+      minPower: 0.01,               // Minimum power threshold
       
       // ============================================
       // SPIN SENSITIVITY (how offset translates to spin)
       // ============================================
-      verticalSpinSensitivity: 1.5,   // How much vertical offset affects spin
-      englishSpinSensitivity: 2.0,    // How much horizontal offset affects spin
-      spinPowerScaling: 1.0,          // How much power amplifies spin (1.0 = linear)
+      verticalSpinSensitivity: 3,     // How much vertical offset affects spin
+      englishSpinSensitivity: 4,      // How much horizontal offset affects spin
+      spinPowerScaling: 2,            // How much power amplifies spin
       
       // ============================================
       // BALL-FELT FRICTION (slide-to-roll transition)
       // ============================================
-      feltFriction: 0.2,              // Friction coefficient for slide-to-roll
-      slideThreshold: 0.1,            // Speed difference threshold for "sliding" vs "rolling"
-      rollAcceleration: 2.0,          // How fast friction converts slide to roll (rad/s²)
+      feltFriction: 0.07,             // Friction coefficient for slide-to-roll
+      slideThreshold: 0.01,           // Speed difference threshold for "sliding" vs "rolling"
+      rollAcceleration: 3.1,          // How fast friction converts slide to roll (rad/s²)
       
       // ============================================
       // SPIN EFFECTS ON OBJECT BALL COLLISION
       // ============================================
-      topspinFollowForce: 1.5,        // How much topspin pushes ball forward after collision
-      backspinDrawForce: 2.0,         // How much backspin pulls ball back after collision
-      spinEffectThreshold: 0.15,      // Minimum spin to trigger effects
-      stopShotThreshold: 0.3,         // Backspin level that causes stop shot (vs draw)
+      topspinFollowForce: 4,          // How much topspin pushes ball forward after collision
+      backspinDrawForce: 5,           // How much backspin pulls ball back after collision
+      spinEffectThreshold: 0.05,      // Minimum spin to trigger effects
+      stopShotThreshold: 0.1,         // Backspin level that causes stop shot (vs draw)
       
       // ============================================
       // ENGLISH (CUSHION) EFFECTS
       // ============================================
-      cushionEnglishEffect: 0.6,      // How much english affects cushion rebound angle
-      cushionSpeedThreshold: 0.3,     // Minimum speed for english to apply on cushion
+      cushionEnglishEffect: 1.5,      // How much english affects cushion rebound angle
+      cushionSpeedThreshold: 0.1,     // Minimum speed for english to apply on cushion
       
       // ============================================
       // ANGULAR VELOCITY SETTINGS
       // ============================================
-      initialRollFactor: 0.3,         // Initial forward roll from natural stroke (0 = pure slide)
-      topspinAngularMultiplier: 50,   // Angular velocity for topspin (rad/s per spin unit)
-      backspinAngularMultiplier: 50,  // Angular velocity for backspin  
-      englishAngularMultiplier: 30,   // Angular velocity for english (Y-axis)
+      initialRollFactor: 0.9,         // Initial forward roll from natural stroke (0 = pure slide)
+      topspinAngularMultiplier: 90,   // Angular velocity for topspin (rad/s per spin unit)
+      backspinAngularMultiplier: 100, // Angular velocity for backspin  
+      englishAngularMultiplier: 80,   // Angular velocity for english (Y-axis)
       
       // ============================================
       // SPIN DECAY
       // ============================================
-      spinDecayRate: 0.98,            // How fast stored spin values decay per frame
+      spinDecayRate: 0.985,           // How fast stored spin values decay per frame
       angularDampingLow: 0.2,         // Angular damping when ball is slow
       angularDampingHigh: 0.15,       // Angular damping when ball is fast
       linearDampingLow: 0.2,          // Linear damping when ball is slow
@@ -112,7 +112,7 @@ export class PhysicsEngine {
       power: power
     };
   }
-  
+
   /**
    * Calculate initial ball state from shot
    * @param {THREE.Vector3} direction - Shot direction (normalized)
@@ -248,7 +248,7 @@ export class PhysicsEngine {
     body.angularVelocity.x *= 0.3;
     body.angularVelocity.z *= 0.3;
   }
-  
+
   /**
    * Apply topspin physics (follows through after collision)
    * @param {CANNON.Body} body - Cue ball physics body

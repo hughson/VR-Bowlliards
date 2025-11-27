@@ -67,21 +67,48 @@ export class BowlliardsRulesEngine {
   processShot(ballsPocketed, isBreak = false) {
     // If we're in 10th-frame bonus rolls, handle those first.
     if (this.bonusRolls > 0) {
-      this.bonusRolls--;
       const frame10 = this.frames[9];
-      frame10.bonus.push(ballsPocketed);
-      const gameOver = (this.bonusRolls === 0);
-
-      if (!gameOver) {
-        // Need to re-rack for the next bonus shot.
-        this.breakProcessed = true;
+      
+      // Add pocketed balls to current bonus roll
+      // We track bonus as an array where each element is the total for that bonus "inning"
+      const currentBonusIndex = frame10.isStrike ? (2 - this.bonusRolls) : 0;
+      
+      // Check if this is the first shot of this bonus inning (bonus break shot)
+      const isBonusBreak = frame10.bonus[currentBonusIndex] === undefined;
+      
+      if (isBonusBreak) {
+        frame10.bonus[currentBonusIndex] = 0;
       }
+      frame10.bonus[currentBonusIndex] += ballsPocketed;
+      
+      // Check if this bonus inning is complete
+      const bonusTotal = frame10.bonus[currentBonusIndex];
+      const clearedAll = bonusTotal >= 10;
+      // Don't count as miss if it's the bonus break shot
+      const missed = ballsPocketed === 0 && !isBonusBreak;
+      const bonusInningComplete = missed || clearedAll;
+      
+      if (bonusInningComplete) {
+        this.bonusRolls--;
+        
+        if (this.bonusRolls > 0) {
+          // More bonus rolls remaining
+          if (clearedAll) {
+            // Only re-rack if player cleared all 10 (another strike)
+            this.breakProcessed = true;
+          }
+          // If they missed, don't re-rack - they continue from where they are
+        }
+      }
+      
+      const gameOver = (this.bonusRolls === 0 && bonusInningComplete);
 
       this.calculateScores();
 
       return {
         isBonus: true,
-        inningComplete: gameOver,
+        inningComplete: bonusInningComplete,
+        needsRerack: clearedAll && this.bonusRolls > 0,
         isTenthFrame: true,
         gameOver
       };
@@ -256,9 +283,15 @@ export class BowlliardsRulesEngine {
   processFoul() {
     // Foul during bonus rolls in 10th frame
     if (this.bonusRolls > 0) {
-      this.bonusRolls--;
       const frame10 = this.frames[9];
-      frame10.bonus.push(0); // foul bonus is 0
+      const currentBonusIndex = frame10.isStrike ? (2 - this.bonusRolls) : 0;
+      
+      // Foul ends this bonus inning with whatever was accumulated (could be 0)
+      if (frame10.bonus[currentBonusIndex] === undefined) {
+        frame10.bonus[currentBonusIndex] = 0;
+      }
+      
+      this.bonusRolls--;
       const gameOver = this.bonusRolls === 0;
 
       if (!gameOver) {
@@ -269,9 +302,10 @@ export class BowlliardsRulesEngine {
 
       return {
         isBonus: true,
-        inningComplete: gameOver,
+        inningComplete: true,
         isTenthFrame: true,
-        grantBallInHand: !gameOver
+        grantBallInHand: !gameOver,
+        gameOver
       };
     }
 

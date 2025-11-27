@@ -23,6 +23,28 @@ export class CelebrationSystem {
     this.spawnFloatingText("SPARE!", new THREE.Vector3(0, 1.5, 0), 0xc0c0c0, 2.0); 
   }
 
+  celebrateWin() {
+    // Gold text with confetti for winning
+    this.spawnFloatingText("YOU WIN!", new THREE.Vector3(0, 1.5, 0), 0xffd700, 2.5);
+    this.spawnConfetti();
+  }
+
+  celebrateLoss() {
+    // Red/dark text for losing (no confetti)
+    this.spawnFloatingText("YOU LOST", new THREE.Vector3(0, 1.5, 0), 0xff4444, 2.0);
+  }
+
+  celebrateGameOver(score) {
+    // Blue text showing final score
+    this.spawnFloatingText("GAME OVER", new THREE.Vector3(0, 1.7, 0), 0x4488ff, 2.0);
+    this.spawnFloatingText(`Score: ${score}`, new THREE.Vector3(0, 1.2, 0), 0xffffff, 1.5);
+  }
+
+  celebrateTie() {
+    // Silver text for tie (no confetti)
+    this.spawnFloatingText("TIE GAME!", new THREE.Vector3(0, 1.5, 0), 0xc0c0c0, 2.0);
+  }
+
   spawnFloatingText(message, position, colorHex, scale = 1.0) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;

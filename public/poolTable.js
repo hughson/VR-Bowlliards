@@ -446,8 +446,10 @@ export class PoolTable {
                   // Topspin (follow)
                   this.physicsEngine.applyTopspinEffect(cb, this.cueBallSpin, collisionNormal);
                 }
-                // Clear spin after effect
-                this.cueBallSpin = null;
+                // Clear vertical spin after effect, but KEEP english for cushion rebounds
+                this.cueBallSpin.vertical = 0;
+                // Reduce power slightly (spin diminishes after collision)
+                this.cueBallSpin.power *= 0.8;
               }
             }, 16);
           }

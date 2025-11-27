@@ -42,11 +42,7 @@ export class CueController {
     
     // --- SHOT SETTINGS ---
     this.maxPower = 2.5;        
-    this.hitThreshold = -0.05; 
-    
-    // Safety mechanism
-    this.shotArmed = false; 
-    this.armThreshold = -0.0127; // 0.5 inch pull-back to arm
+    this.hitThreshold = -0.05;
 
     this.desktopAimPoint = new THREE.Vector3();
     this.lastCueBallPosition = new THREE.Vector3(-0.64, 0.978, 0);
@@ -106,7 +102,6 @@ export class CueController {
     if (!bridgeController || !strokeController) return;
 
     this.controlState = 'STROKE_LOCKED';
-    this.shotArmed = false;
 
     this.cuePivot.getWorldQuaternion(this.lockedAimQuaternion);
     this.cuePivot.getWorldPosition(this.lockedButtPos);
@@ -125,7 +120,6 @@ export class CueController {
     this.controlState = 'IDLE';
     this.strokeVelocity = 0;
     this.velocityHistory = [];
-    this.shotArmed = false;
   }
 
 
@@ -187,15 +181,6 @@ export class CueController {
         
       let distanceAlongCue = strokeMovement.dot(strokeDirection); 
       
-      // Safety / Arming Logic
-      if (!this.shotArmed) {
-        if (distanceAlongCue < this.armThreshold) {
-          this.shotArmed = true;
-        } else {
-          distanceAlongCue = Math.min(distanceAlongCue, 0);
-        }
-      }
-      
       this.cuePivot.position.copy(this.lockedButtPos)
         .addScaledVector(strokeDirection, distanceAlongCue);
       
@@ -241,12 +226,12 @@ export class CueController {
         this.cueStick.userData.tipMesh.getWorldPosition(tipWorldPos);
         const distanceToball = tipWorldPos.distanceTo(cueBall.position);
         const ballRadius = 0.028;
-        const tipContactThreshold = 0.06; 
+        const tipContactThreshold = 0.015; // Must be within ~0.5 inch of ball surface
         cueTipTouchingBall = distanceToball < (ballRadius + tipContactThreshold);
       }
       
       // SHOT TRIGGER
-      if (this.shotArmed && cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.001) {
+      if (cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.001) {
         
         // Calculate power (0-1 range)
         const power = Math.min(this.strokeVelocity / this.maxPower, 1.0);
@@ -314,8 +299,7 @@ export class CueController {
         // Reset state
         this.controlState = 'IDLE';
         this.strokeVelocity = 0;
-        this.velocityHistory = []; 
-        this.shotArmed = false; 
+        this.velocityHistory = [];
       }
 
       this.lastStrokePos.copy(strokePos);

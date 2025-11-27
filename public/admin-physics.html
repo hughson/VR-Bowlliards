@@ -165,79 +165,131 @@
     let currentParams = {};
     let socket = null;
     
-    // Parameter definitions
+    // Parameter definitions with EXPANDED RANGES (current values are now middle-of-road)
     const paramDefs = {
-      powerMultiplier: { section: 'Shot Power', min: 5, max: 25, step: 0.5, desc: 'Base force multiplier' },
-      maxPower: { section: 'Shot Power', min: 0.5, max: 2, step: 0.1, desc: 'Maximum power cap' },
-      minPower: { section: 'Shot Power', min: 0.01, max: 0.2, step: 0.01, desc: 'Minimum power threshold' },
-      verticalSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 3, step: 0.1, desc: 'Vertical offset → spin' },
-      englishSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 4, step: 0.1, desc: 'Horizontal offset → spin' },
-      spinPowerScaling: { section: 'Spin Sensitivity', min: 0.5, max: 2, step: 0.1, desc: 'Power effect on spin' },
-      feltFriction: { section: 'Ball-Felt Friction', min: 0.05, max: 0.5, step: 0.01, desc: 'Slide-to-roll friction' },
-      slideThreshold: { section: 'Ball-Felt Friction', min: 0.01, max: 0.3, step: 0.01, desc: 'Sliding vs rolling threshold' },
-      rollAcceleration: { section: 'Ball-Felt Friction', min: 0.5, max: 5, step: 0.1, desc: 'Slide → roll conversion speed' },
-      topspinFollowForce: { section: 'Spin Effects', min: 0.5, max: 4, step: 0.1, desc: 'Topspin follow-through' },
-      backspinDrawForce: { section: 'Spin Effects', min: 0.5, max: 5, step: 0.1, desc: 'Backspin draw-back' },
-      spinEffectThreshold: { section: 'Spin Effects', min: 0.05, max: 0.4, step: 0.01, desc: 'Min spin for effects' },
-      stopShotThreshold: { section: 'Spin Effects', min: 0.1, max: 0.6, step: 0.05, desc: 'Backspin stop vs draw' },
-      cushionEnglishEffect: { section: 'English (Cushion)', min: 0.1, max: 1.5, step: 0.05, desc: 'English on cushion rebound' },
-      cushionSpeedThreshold: { section: 'English (Cushion)', min: 0.1, max: 1, step: 0.05, desc: 'Min speed for english' },
-      initialRollFactor: { section: 'Angular Velocity', min: 0, max: 1, step: 0.05, desc: 'Initial roll (0=slide, 1=roll)' },
-      topspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 100, step: 5, desc: 'Topspin angular vel' },
-      backspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 100, step: 5, desc: 'Backspin angular vel' },
-      englishAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 80, step: 5, desc: 'English angular vel' },
-      spinDecayRate: { section: 'Decay & Damping', min: 0.9, max: 1, step: 0.005, desc: 'Spin decay per frame' },
-      angularDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.5, step: 0.01, desc: 'Angular damp (slow)' },
-      angularDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Angular damp (fast)' },
-      linearDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.5, step: 0.01, desc: 'Linear damp (slow)' },
-      linearDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Linear damp (fast)' },
-      slowSpeedThreshold: { section: 'Speed Thresholds', min: 0.2, max: 1.5, step: 0.05, desc: 'Slow ball threshold' },
-      stopSpeedThreshold: { section: 'Speed Thresholds', min: 0.02, max: 0.2, step: 0.01, desc: 'Stop ball threshold' },
-      stopAngularThreshold: { section: 'Speed Thresholds', min: 0.2, max: 1.5, step: 0.1, desc: 'Stop rotation threshold' },
+      // Shot Power - expanded ranges
+      powerMultiplier: { section: 'Shot Power', min: 5, max: 50, step: 1, desc: 'Base force multiplier (default: 25)' },
+      maxPower: { section: 'Shot Power', min: 0.5, max: 4, step: 0.1, desc: 'Maximum power cap (default: 2)' },
+      minPower: { section: 'Shot Power', min: 0.001, max: 0.05, step: 0.001, desc: 'Minimum power threshold (default: 0.01)' },
+      
+      // Spin Sensitivity - expanded ranges
+      verticalSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 6, step: 0.1, desc: 'Vertical offset → spin (default: 3)' },
+      englishSpinSensitivity: { section: 'Spin Sensitivity', min: 0.5, max: 8, step: 0.1, desc: 'Horizontal offset → spin (default: 4)' },
+      spinPowerScaling: { section: 'Spin Sensitivity', min: 0.5, max: 4, step: 0.1, desc: 'Power effect on spin (default: 2)' },
+      
+      // Ball-Felt Friction - tighter ranges centered on low values
+      feltFriction: { section: 'Ball-Felt Friction', min: 0.01, max: 0.15, step: 0.005, desc: 'Slide-to-roll friction (default: 0.07)' },
+      slideThreshold: { section: 'Ball-Felt Friction', min: 0.001, max: 0.05, step: 0.001, desc: 'Sliding vs rolling threshold (default: 0.01)' },
+      rollAcceleration: { section: 'Ball-Felt Friction', min: 1, max: 6, step: 0.1, desc: 'Slide → roll conversion speed (default: 3.1)' },
+      
+      // Spin Effects - expanded ranges
+      topspinFollowForce: { section: 'Spin Effects', min: 0.5, max: 8, step: 0.1, desc: 'Topspin follow-through (default: 4)' },
+      backspinDrawForce: { section: 'Spin Effects', min: 0.5, max: 10, step: 0.1, desc: 'Backspin draw-back (default: 5)' },
+      spinEffectThreshold: { section: 'Spin Effects', min: 0.01, max: 0.1, step: 0.005, desc: 'Min spin for effects (default: 0.05)' },
+      stopShotThreshold: { section: 'Spin Effects', min: 0.02, max: 0.2, step: 0.01, desc: 'Backspin stop vs draw (default: 0.1)' },
+      
+      // English (Cushion) - expanded ranges
+      cushionEnglishEffect: { section: 'English (Cushion)', min: 0.1, max: 3, step: 0.05, desc: 'English on cushion rebound (default: 1.5)' },
+      cushionSpeedThreshold: { section: 'English (Cushion)', min: 0.02, max: 0.2, step: 0.01, desc: 'Min speed for english (default: 0.1)' },
+      
+      // Angular Velocity - expanded ranges
+      initialRollFactor: { section: 'Angular Velocity', min: 0, max: 1, step: 0.05, desc: 'Initial roll (0=slide, 1=roll) (default: 0.9)' },
+      topspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 180, step: 5, desc: 'Topspin angular vel (default: 90)' },
+      backspinAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 200, step: 5, desc: 'Backspin angular vel (default: 100)' },
+      englishAngularMultiplier: { section: 'Angular Velocity', min: 10, max: 160, step: 5, desc: 'English angular vel (default: 80)' },
+      
+      // Decay & Damping
+      spinDecayRate: { section: 'Decay & Damping', min: 0.97, max: 1, step: 0.001, desc: 'Spin decay per frame (default: 0.985)' },
+      angularDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Angular damp (slow) (default: 0.2)' },
+      angularDampingHigh: { section: 'Decay & Damping', min: 0.05, max: 0.3, step: 0.01, desc: 'Angular damp (fast) (default: 0.15)' },
+      linearDampingLow: { section: 'Decay & Damping', min: 0.05, max: 0.4, step: 0.01, desc: 'Linear damp (slow) (default: 0.2)' },
+      linearDampingHigh: { section: 'Decay & Damping', min: 0.02, max: 0.25, step: 0.01, desc: 'Linear damp (fast) (default: 0.12)' },
+      
+      // Speed Thresholds
+      slowSpeedThreshold: { section: 'Speed Thresholds', min: 0.1, max: 1, step: 0.05, desc: 'Slow ball threshold (default: 0.5)' },
+      stopSpeedThreshold: { section: 'Speed Thresholds', min: 0.02, max: 0.16, step: 0.01, desc: 'Stop ball threshold (default: 0.08)' },
+      stopAngularThreshold: { section: 'Speed Thresholds', min: 0.1, max: 1.2, step: 0.05, desc: 'Stop rotation threshold (default: 0.6)' },
     };
-    
-    // Presets
+
+    // Presets - adjusted for new ranges (current settings are the new "balanced" middle)
     const presets = {
       realistic: {
-        powerMultiplier: 12.7, maxPower: 1.0, minPower: 0.05,
-        verticalSpinSensitivity: 1.5, englishSpinSensitivity: 2.0, spinPowerScaling: 1.0,
-        feltFriction: 0.2, slideThreshold: 0.1, rollAcceleration: 2.0,
-        topspinFollowForce: 1.5, backspinDrawForce: 2.0, spinEffectThreshold: 0.15, stopShotThreshold: 0.3,
-        cushionEnglishEffect: 0.6, cushionSpeedThreshold: 0.3,
-        initialRollFactor: 0.3, topspinAngularMultiplier: 50, backspinAngularMultiplier: 50, englishAngularMultiplier: 30,
-        spinDecayRate: 0.98, angularDampingLow: 0.2, angularDampingHigh: 0.15, linearDampingLow: 0.2, linearDampingHigh: 0.12,
-        slowSpeedThreshold: 0.5, stopSpeedThreshold: 0.08, stopAngularThreshold: 0.6
+        // Lower power, subtle spin - more like real pool
+        powerMultiplier: 15, maxPower: 1.2, minPower: 0.02,
+        verticalSpinSensitivity: 2.0, englishSpinSensitivity: 2.5, spinPowerScaling: 1.2,
+        feltFriction: 0.08, slideThreshold: 0.015, rollAcceleration: 2.5,
+        topspinFollowForce: 2.5, backspinDrawForce: 3.0, spinEffectThreshold: 0.06, stopShotThreshold: 0.12,
+        cushionEnglishEffect: 1.0, cushionSpeedThreshold: 0.12,
+        initialRollFactor: 0.5, topspinAngularMultiplier: 60, backspinAngularMultiplier: 70, englishAngularMultiplier: 50,
+        spinDecayRate: 0.982, angularDampingLow: 0.22, angularDampingHigh: 0.16, linearDampingLow: 0.22, linearDampingHigh: 0.14,
+        slowSpeedThreshold: 0.55, stopSpeedThreshold: 0.09, stopAngularThreshold: 0.65
       },
       arcade: {
-        powerMultiplier: 15, maxPower: 1.2, minPower: 0.05,
-        verticalSpinSensitivity: 2.0, englishSpinSensitivity: 2.5, spinPowerScaling: 1.0,
-        feltFriction: 0.15, slideThreshold: 0.1, rollAcceleration: 2.5,
-        topspinFollowForce: 2.0, backspinDrawForce: 2.5, spinEffectThreshold: 0.1, stopShotThreshold: 0.25,
-        cushionEnglishEffect: 0.8, cushionSpeedThreshold: 0.25,
-        initialRollFactor: 0.4, topspinAngularMultiplier: 60, backspinAngularMultiplier: 60, englishAngularMultiplier: 40,
-        spinDecayRate: 0.985, angularDampingLow: 0.15, angularDampingHigh: 0.1, linearDampingLow: 0.15, linearDampingHigh: 0.1,
-        slowSpeedThreshold: 0.4, stopSpeedThreshold: 0.06, stopAngularThreshold: 0.5
+        // Higher power, exaggerated spin effects - fun and responsive
+        powerMultiplier: 35, maxPower: 3.0, minPower: 0.008,
+        verticalSpinSensitivity: 4.5, englishSpinSensitivity: 6.0, spinPowerScaling: 2.8,
+        feltFriction: 0.05, slideThreshold: 0.008, rollAcceleration: 4.0,
+        topspinFollowForce: 6.0, backspinDrawForce: 7.5, spinEffectThreshold: 0.03, stopShotThreshold: 0.08,
+        cushionEnglishEffect: 2.2, cushionSpeedThreshold: 0.08,
+        initialRollFactor: 0.95, topspinAngularMultiplier: 140, backspinAngularMultiplier: 160, englishAngularMultiplier: 120,
+        spinDecayRate: 0.992, angularDampingLow: 0.12, angularDampingHigh: 0.08, linearDampingLow: 0.12, linearDampingHigh: 0.08,
+        slowSpeedThreshold: 0.35, stopSpeedThreshold: 0.05, stopAngularThreshold: 0.4
       },
       tournament: {
-        powerMultiplier: 11, maxPower: 0.9, minPower: 0.05,
-        verticalSpinSensitivity: 1.2, englishSpinSensitivity: 1.8, spinPowerScaling: 1.0,
-        feltFriction: 0.15, slideThreshold: 0.08, rollAcceleration: 1.8,
-        topspinFollowForce: 1.2, backspinDrawForce: 1.5, spinEffectThreshold: 0.18, stopShotThreshold: 0.35,
-        cushionEnglishEffect: 0.5, cushionSpeedThreshold: 0.35,
-        initialRollFactor: 0.25, topspinAngularMultiplier: 45, backspinAngularMultiplier: 45, englishAngularMultiplier: 25,
-        spinDecayRate: 0.975, angularDampingLow: 0.22, angularDampingHigh: 0.12, linearDampingLow: 0.18, linearDampingHigh: 0.1,
+        // Precise, controlled - for competitive play
+        powerMultiplier: 20, maxPower: 1.5, minPower: 0.015,
+        verticalSpinSensitivity: 2.5, englishSpinSensitivity: 3.0, spinPowerScaling: 1.5,
+        feltFriction: 0.06, slideThreshold: 0.012, rollAcceleration: 2.8,
+        topspinFollowForce: 3.0, backspinDrawForce: 3.5, spinEffectThreshold: 0.055, stopShotThreshold: 0.11,
+        cushionEnglishEffect: 1.2, cushionSpeedThreshold: 0.11,
+        initialRollFactor: 0.7, topspinAngularMultiplier: 75, backspinAngularMultiplier: 85, englishAngularMultiplier: 65,
+        spinDecayRate: 0.984, angularDampingLow: 0.2, angularDampingHigh: 0.14, linearDampingLow: 0.2, linearDampingHigh: 0.12,
         slowSpeedThreshold: 0.5, stopSpeedThreshold: 0.08, stopAngularThreshold: 0.6
       },
       practice: {
-        powerMultiplier: 12.7, maxPower: 1.0, minPower: 0.03,
-        verticalSpinSensitivity: 2.5, englishSpinSensitivity: 3.0, spinPowerScaling: 0.8,
-        feltFriction: 0.2, slideThreshold: 0.1, rollAcceleration: 2.0,
-        topspinFollowForce: 2.5, backspinDrawForce: 3.0, spinEffectThreshold: 0.1, stopShotThreshold: 0.25,
-        cushionEnglishEffect: 1.0, cushionSpeedThreshold: 0.2,
-        initialRollFactor: 0.3, topspinAngularMultiplier: 60, backspinAngularMultiplier: 60, englishAngularMultiplier: 40,
-        spinDecayRate: 0.99, angularDampingLow: 0.2, angularDampingHigh: 0.15, linearDampingLow: 0.2, linearDampingHigh: 0.12,
-        slowSpeedThreshold: 0.5, stopSpeedThreshold: 0.08, stopAngularThreshold: 0.6
+        // Enhanced feedback - see spin effects clearly for learning
+        powerMultiplier: 25, maxPower: 2.0, minPower: 0.01,
+        verticalSpinSensitivity: 4.0, englishSpinSensitivity: 5.0, spinPowerScaling: 2.5,
+        feltFriction: 0.07, slideThreshold: 0.01, rollAcceleration: 3.1,
+        topspinFollowForce: 5.0, backspinDrawForce: 6.0, spinEffectThreshold: 0.04, stopShotThreshold: 0.09,
+        cushionEnglishEffect: 1.8, cushionSpeedThreshold: 0.09,
+        initialRollFactor: 0.9, topspinAngularMultiplier: 110, backspinAngularMultiplier: 120, englishAngularMultiplier: 100,
+        spinDecayRate: 0.988, angularDampingLow: 0.18, angularDampingHigh: 0.12, linearDampingLow: 0.18, linearDampingHigh: 0.1,
+        slowSpeedThreshold: 0.45, stopSpeedThreshold: 0.07, stopAngularThreshold: 0.55
       }
+    };
+    
+    // Default values (your current tuned settings - middle of road)
+    const defaultParams = {
+      powerMultiplier: 25,
+      maxPower: 2,
+      minPower: 0.01,
+      verticalSpinSensitivity: 3,
+      englishSpinSensitivity: 4,
+      spinPowerScaling: 2,
+      feltFriction: 0.07,
+      slideThreshold: 0.01,
+      rollAcceleration: 3.1,
+      topspinFollowForce: 4,
+      backspinDrawForce: 5,
+      spinEffectThreshold: 0.05,
+      stopShotThreshold: 0.1,
+      cushionEnglishEffect: 1.5,
+      cushionSpeedThreshold: 0.1,
+      initialRollFactor: 0.9,
+      topspinAngularMultiplier: 90,
+      backspinAngularMultiplier: 100,
+      englishAngularMultiplier: 80,
+      spinDecayRate: 0.985,
+      angularDampingLow: 0.2,
+      angularDampingHigh: 0.15,
+      linearDampingLow: 0.2,
+      linearDampingHigh: 0.12,
+      slowSpeedThreshold: 0.5,
+      stopSpeedThreshold: 0.08,
+      stopAngularThreshold: 0.6,
+      ballRadius: 0.028,
+      ballMass: 0.17
     };
     
     // Login
@@ -282,7 +334,7 @@
       
       socket.emit('requestPlayerCount');
     }
-    
+
     // Build UI
     function buildUI() {
       const container = document.getElementById('params-container');
@@ -361,9 +413,9 @@
       }
     }
     
-    // Reset
+    // Reset to defaults (your current tuned settings)
     async function resetDefaults() {
-      if (!confirm('Reset ALL physics to defaults?')) return;
+      if (!confirm('Reset ALL physics to defaults (your tuned middle-of-road settings)?')) return;
       
       try {
         const response = await fetch('/api/physics/reset', {
@@ -379,7 +431,10 @@
           showSaveIndicator();
         }
       } catch (e) {
-        alert('Failed to reset: ' + e.message);
+        // If server reset fails, use local defaults
+        currentParams = { ...defaultParams };
+        buildUI();
+        alert('Reset to defaults locally. Click "Save & Apply" to send to all players.');
       }
     }
     

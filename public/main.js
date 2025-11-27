@@ -134,7 +134,7 @@ class VRBowlliardsGame {
 
     this.renderer.xr.addEventListener('sessionstart', () => {
       this.isVR = true;
-      this.locomotion.dolly.position.set(-1.2, 0, 0);
+      this.locomotion.dolly.position.set(-2.0, 0, 0);
       this.locomotion.dolly.rotation.set(0, -Math.PI / 2, 0);
       if (this.desktopControls) this.desktopControls.setVREnabled(true);
       if (this.soundManager) this.soundManager.resumeContext();
@@ -745,13 +745,23 @@ class VRBowlliardsGame {
       if (result.gameOver) {
         this.showNotification('Bonus rolls complete!', 2000);
         await this.advanceFrame();
-      } else {
-        // More bonus rolls remaining - re-rack
-        this.showNotification('Bonus roll! Keep going...', 1500);
-        this.poolTable.setupBalls();  // Re-rack for next bonus
+      } else if (result.inningComplete) {
+        // Bonus inning complete but more remain
+        if (result.needsRerack) {
+          // Cleared all 10 - re-rack for next bonus inning
+          this.showNotification('Another strike! Bonus roll continues...', 1500);
+          this.poolTable.setupBalls();
+          this.ballInHand.enable(true);
+        } else {
+          // Missed - continue from where you are for next bonus inning
+          this.showNotification('Next bonus inning! Keep shooting...', 1500);
+        }
         this.updateScoreboard();
         this.gameState = 'ready';
-        this.ballInHand.enable(true);
+      } else {
+        // Still shooting in current bonus inning
+        this.updateScoreboard();
+        this.gameState = 'ready';
       }
     } else if (result.inningComplete) {
       if (result.inning === 1) {
@@ -875,6 +885,12 @@ class VRBowlliardsGame {
       const finalScore = this.rulesEngine.getTotalScore();
       this.gameState = 'gameOver';
       this.showNotification(`Game Over! Score: ${finalScore}. Press RESET button.`, 10000);
+      
+      // Celebrate game over with floating text
+      if (this.celebrationSystem) {
+        this.celebrationSystem.celebrateGameOver(finalScore);
+      }
+      
       let playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
       await this.leaderboard.addScore(finalScore, playerName);
       
@@ -985,12 +1001,24 @@ class VRBowlliardsGame {
       if (myScore > oppScore) {
         this.showNotification(`YOU WIN! ${myScore} vs ${oppScore}`, 5000);
         gameResult = 'win';
+        // Celebrate win with floating text and confetti
+        if (this.celebrationSystem) {
+          this.celebrationSystem.celebrateWin();
+        }
       } else if (oppScore > myScore) {
         this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore}`, 5000);
         gameResult = 'loss';
+        // Show loss floating text
+        if (this.celebrationSystem) {
+          this.celebrationSystem.celebrateLoss();
+        }
       } else {
         this.showNotification(`TIE GAME! ${myScore} vs ${oppScore}`, 5000);
         gameResult = 'tie';
+        // Show tie floating text
+        if (this.celebrationSystem) {
+          this.celebrationSystem.celebrateTie();
+        }
       }
       this.gameState = 'gameOver';
       
