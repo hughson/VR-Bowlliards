@@ -162,24 +162,13 @@ export class NetworkManager {
       this.game.myPlayerNumber = data.playerNumber;
       this.roomCode = data.roomCode;
       
-      // Hide both waiting screen AND lobby (in case player was matched immediately)
-      if (window.hideCancelButton) {
-        window.hideCancelButton();
-      }
-      if (window.hideAllOverlays) {
-        window.hideAllOverlays();
-      }
-      
-      // Player 1 (first to join) is host and goes first
-      const isMyTurn = (data.playerNumber === 1);
-      console.log('[NETWORK] My Turn:', isMyTurn ? 'YES (I GO FIRST)' : 'NO (WAITING)');
-      
-      if (this.game.setTurnState) {
-        this.game.setTurnState(isMyTurn);
-      }
+      // Note: Don't hide overlays or set turn state here.
+      // If waiting for opponent → waitingForOpponent event will start practice mode
+      // If matched immediately → gameReady event will setup multiplayer
+      // Just store the player number for now.
       
       const roleText = data.playerNumber === 1 ? 'HOST (Player 1)' : 'GUEST (Player 2)';
-      this.game.showNotification(`You are ${roleText}. ${isMyTurn ? 'Your turn!' : 'Waiting for opponent...'}`, 3000);
+      console.log('[NETWORK] Assigned as', roleText);
       console.log('[NETWORK] ===== END PLAYER ASSIGNMENT =====');
     });
 
@@ -193,10 +182,18 @@ export class NetworkManager {
     this.socket.on('waitingForOpponent', (data) => {
       console.log('[NETWORK] Waiting for opponent in room:', data.roomCode);
       this.roomCode = data.roomCode;
-      this.game.showNotification('Waiting for opponent to join...', 10000);
       
-      // Show cancel button if available
-      if (window.showCancelButton) {
+      // Start practice mode while waiting (instead of just showing cancel button)
+      if (this.game.startPracticeWhileWaiting) {
+        this.game.startPracticeWhileWaiting();
+      } else {
+        this.game.showNotification('Waiting for opponent to join...', 10000);
+      }
+      
+      // Show the searching indicator (non-blocking version)
+      if (window.showSearchingIndicator) {
+        window.showSearchingIndicator();
+      } else if (window.showCancelButton) {
         window.showCancelButton();
       }
     });
@@ -206,14 +203,36 @@ export class NetworkManager {
       console.log('[NETWORK] Matchmaking canceled');
       this.roomCode = null;
       this.game.isMultiplayer = false;
-      this.game.showNotification('Matchmaking canceled', 2000);
       
-      // Hide cancel button and show lobby
-      if (window.hideCancelButton) {
-        window.hideCancelButton();
-      }
-      if (window.showLobby) {
-        window.showLobby();
+      // If was in practice mode, clean up but keep playing as single player (don't show lobby)
+      if (this.game.isPracticeWhileWaiting) {
+        console.log('[NETWORK] Converting practice mode to regular single player');
+        this.game.isPracticeWhileWaiting = false;
+        // Keep the practice rules engine as the real one (don't reset progress)
+        this.game._realRulesEngine = null;
+        this.game.showNotification('Matchmaking canceled - continuing as single player', 3000);
+        
+        // Just hide the searching indicator, don't show lobby
+        if (window.hideSearchingIndicator) {
+          window.hideSearchingIndicator();
+        }
+        if (window.hideCancelButton) {
+          window.hideCancelButton();
+        }
+        // Player continues their practice game as single player
+      } else {
+        // Normal flow - show lobby
+        this.game.showNotification('Matchmaking canceled', 2000);
+        
+        if (window.hideCancelButton) {
+          window.hideCancelButton();
+        }
+        if (window.hideSearchingIndicator) {
+          window.hideSearchingIndicator();
+        }
+        if (window.showLobby) {
+          window.showLobby();
+        }
       }
     });
     
@@ -244,17 +263,45 @@ export class NetworkManager {
       
       console.log('[NETWORK] Opponent name:', this.game.remotePlayerName);
       
-      // Hide all overlays (waiting screen AND lobby)
+      // Hide all overlays (waiting screen, lobby, AND searching indicator)
       if (window.hideCancelButton) {
         window.hideCancelButton();
+      }
+      if (window.hideSearchingIndicator) {
+        window.hideSearchingIndicator();
       }
       if (window.hideAllOverlays) {
         window.hideAllOverlays();
       }
       
-      this.game.isMultiplayer = true;
-      this.game.gameStarted = true;  // Mark game as actually started
-      this.game.showNotification('Both players connected! Game starting...', 3000);
+      // If player was in practice mode, stop it and start real multiplayer
+      if (this.game.isPracticeWhileWaiting && this.game.stopPracticeAndStartMultiplayer) {
+        console.log('[NETWORK] Stopping practice mode, starting multiplayer...');
+        this.game.stopPracticeAndStartMultiplayer();
+        this.game.showNotification(`Opponent found: ${this.game.remotePlayerName}! Match starting...`, 3000);
+      } else {
+        // Normal flow (wasn't in practice mode - either joined existing room or private room)
+        this.game.isMultiplayer = true;
+        this.game.gameStarted = true;
+        
+        // Setup multiplayer scoreboard
+        if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+          this.game.scoreboard.setupBoard('multi');
+        }
+        
+        // Ensure remote rules engine exists
+        if (!this.game.remoteRulesEngine) {
+          this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+        }
+        
+        // Set turn state - Player 1 goes first
+        const isMyTurn = (this.game.myPlayerNumber === 1);
+        if (this.game.setTurnState) {
+          this.game.setTurnState(isMyTurn);
+        }
+        
+        this.game.showNotification('Both players connected! Game starting...', 3000);
+      }
       
       // Play "It is your turn" sound for Player 1 now that game has started
       if (this.game.myPlayerNumber === 1 && this.game.soundManager) {
@@ -440,19 +487,22 @@ export class NetworkManager {
     this.roomCode = roomCode;
     console.log('[NETWORK] Joining room:', roomCode);
     
-    // Setup multiplayer mode
+    // NOTE: Don't setup multiplayer mode here - wait for gameReady.
+    // This ensures player can't shoot before opponent joins.
+    // Just ensure remote rules engine exists for when we need it.
+    if (this.game && !this.game.remoteRulesEngine) {
+      this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+    }
+    
+    // Set game state to waiting (player can't shoot until gameReady)
     if (this.game) {
-      this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+      this.game.isMultiplayer = true;  // Mark as multiplayer intent
+      this.game.gameState = 'waiting';
+      this.game.isMyTurn = false;
+      if (this.game.ballInHand) {
+        this.game.ballInHand.disable();
       }
-
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-        this.game.scoreboard.setupBoard('multi');
-      }
-
-      console.log('[NETWORK] Waiting for server to assign player number...');
+      console.log('[NETWORK] Waiting for opponent to join room...');
     }
 
     this.socket.emit('joinRoom', { 
@@ -472,20 +522,16 @@ export class NetworkManager {
     console.log('[NETWORK] Joining public matchmaking...');
     this.game.showNotification('Finding opponent...', 2000);
     
-    // Setup multiplayer mode
-    if (this.game) {
-      this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
-      }
-
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-        this.game.scoreboard.setupBoard('multi');
-      }
-
-      console.log('[NETWORK] Waiting for matchmaking...');
+    // NOTE: Don't setup multiplayer mode here - wait for server response.
+    // If we get 'waitingForOpponent', we'll start practice mode (single player while waiting).
+    // If we get 'gameReady' immediately (opponent found), we'll setup multiplayer then.
+    
+    // Just ensure remote rules engine exists for when we need it
+    if (this.game && !this.game.remoteRulesEngine) {
+      this.game.remoteRulesEngine = new BowlliardsRulesEngine();
     }
+    
+    console.log('[NETWORK] Waiting for matchmaking response...');
 
     // Emit to server to find/create public room (with player name)
     this.socket.emit('joinPublicMatch', {

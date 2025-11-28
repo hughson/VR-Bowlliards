@@ -65,6 +65,10 @@ class VRBowlliardsGame {
     this.isAuthority = true;
     this.gameStarted = false;  // True only when both players are connected
     
+    // Practice while waiting mode
+    this.isPracticeWhileWaiting = false;  // True when playing solo while in matchmaking queue
+    this.practiceRulesEngine = null;      // Separate rules engine for practice (don't pollute main one)
+    
     this.leftHandController = null;
     this.rightHandController = null;
     
@@ -375,6 +379,105 @@ class VRBowlliardsGame {
     this.setupNewFrame(true);
     
     this.renderer.setAnimationLoop(() => this.animate());
+  }
+
+  // ============================================
+  // PRACTICE WHILE WAITING MODE
+  // ============================================
+  
+  startPracticeWhileWaiting() {
+    console.log('[GAME] Starting practice mode while waiting for opponent...');
+    
+    this.isPracticeWhileWaiting = true;
+    this.isMultiplayer = false;  // Temporarily disable multiplayer logic
+    this.gameStarted = false;
+    
+    // Create a separate rules engine for practice (don't pollute main one)
+    this.practiceRulesEngine = new BowlliardsRulesEngine();
+    
+    // Store the real rules engine and swap in practice one
+    this._realRulesEngine = this.rulesEngine;
+    this.rulesEngine = this.practiceRulesEngine;
+    
+    // Setup single player scoreboard for practice
+    this.scoreboard.setupBoard('single');
+    
+    // Reset the table and allow playing
+    this.poolTable.setupBalls();
+    this.currentInning = 1;
+    this.frameJustStarted = true;
+    this.ballsSettled = true;
+    this.breakShotTaken = false;
+    this.gameState = 'ready';
+    this.isMyTurn = true;
+    this.ballInHand.enable(true);
+    
+    // Update cue controller
+    if (this.cueController) {
+      this.cueController.update(true);
+    }
+    
+    this.scoreboard.drawEmptyScore();
+    this.updateScoreboard();
+    
+    this.showNotification('Practice while waiting! An opponent will join soon...', 3000);
+    console.log('[GAME] Practice mode active');
+  }
+  
+  stopPracticeAndStartMultiplayer() {
+    if (!this.isPracticeWhileWaiting) return;
+    
+    console.log('[GAME] Opponent found! Stopping practice and starting multiplayer...');
+    
+    // Restore the real rules engine (reset it for fresh multiplayer game)
+    if (this._realRulesEngine) {
+      this.rulesEngine = this._realRulesEngine;
+      this.rulesEngine.reset();  // Fresh start for multiplayer
+      this._realRulesEngine = null;
+    } else {
+      this.rulesEngine = new BowlliardsRulesEngine();
+    }
+    
+    this.practiceRulesEngine = null;
+    this.isPracticeWhileWaiting = false;
+    this.isMultiplayer = true;
+    this.gameStarted = true;
+    
+    // Setup multiplayer scoreboard
+    this.scoreboard.setupBoard('multi');
+    
+    // Create remote rules engine for opponent
+    if (!this.remoteRulesEngine) {
+      this.remoteRulesEngine = new BowlliardsRulesEngine();
+    } else {
+      this.remoteRulesEngine.reset();
+    }
+    
+    // Reset the table for multiplayer
+    this.poolTable.setupBalls();
+    this.currentInning = 1;
+    this.frameJustStarted = true;
+    this.ballsSettled = true;
+    this.breakShotTaken = false;
+    
+    // Player 1 goes first
+    this.isMyTurn = (this.myPlayerNumber === 1);
+    this.gameState = this.isMyTurn ? 'ready' : 'waiting';
+    
+    if (this.isMyTurn) {
+      this.ballInHand.enable(true);
+    } else {
+      this.ballInHand.disable();
+    }
+    
+    // Update cue controller
+    if (this.cueController) {
+      this.cueController.update(true);
+    }
+    
+    this.updateScoreboard();
+    
+    console.log('[GAME] Multiplayer mode active. Player', this.myPlayerNumber, 'ready.');
   }
 
   setupNewFrame(isBreakShot = false) {

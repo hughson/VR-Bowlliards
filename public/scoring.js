@@ -26,6 +26,29 @@ export class BowlliardsRulesEngine {
     }
   }
 
+  // Reset the rules engine to initial state (for starting new game)
+  reset() {
+    this.frames = [];
+    this.currentFrame = 0;
+    this.currentInning = 1;
+    this.breakProcessed = false;
+    this.bonusRolls = 0;
+    this.breakBalls = [];
+
+    for (let i = 0; i < 10; i++) {
+      this.frames.push({
+        inning1: { scored: 0, complete: false },
+        inning2: { scored: 0, complete: false },
+        bonus: [],
+        score: 0,
+        isStrike: false,
+        isSpare: false,
+        isOpen: false
+      });
+      this.breakBalls.push(0);
+    }
+  }
+
   // --- BREAK / STATE HELPERS ---
 
   isBreakShot() {
