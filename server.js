@@ -767,6 +767,12 @@ io.on('connection', (socket) => {
   socket.on('voiceIceCandidate', (data) => {
     socket.to(data.roomCode).emit('voiceIceCandidate', { candidate: data.candidate });
   });
+  
+  // Voice call request (Player 2 asking Player 1 to initiate call)
+  socket.on('voiceRequestCall', (data) => {
+    console.log(`[VOICE] Player requesting call in room ${data.roomCode}`);
+    socket.to(data.roomCode).emit('voiceRequestCall', {});
+  });
 
   // --- NEW: Score Update (After Each Inning) ---
   socket.on('scoreUpdate', (data) => {

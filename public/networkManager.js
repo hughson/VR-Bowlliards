@@ -543,6 +543,16 @@ export class NetworkManager {
         await this.game.voiceChat.handleRemoteIceCandidate(data.candidate);
       }
     });
+    
+    // Player 2 requested a voice call, Player 1 should initiate
+    this.socket.on('voiceRequestCall', async () => {
+      console.log('[NETWORK] ====== VOICE CALL REQUESTED ======');
+      if (this.game.myPlayerNumber === 1 && this.game.voiceChat) {
+        this.game.showNotification('📞 Opponent requested voice call', 2000);
+        await this.game.voiceChat.init();
+        this.game.voiceChat.startCall();
+      }
+    });
   }
 
   joinRoom(roomCode) {

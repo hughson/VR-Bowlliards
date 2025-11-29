@@ -143,17 +143,20 @@ export class PlayerMenu {
     // Render self-mute section
     this.renderSelfControls(ctx, w, 100);
     
+    // Render voice connect button
+    this.renderVoiceConnectButton(ctx, w, 150);
+    
     // Divider
-    this.renderDivider(ctx, 30, 180, w - 60);
+    this.renderDivider(ctx, 30, 210, w - 60);
     
     // Players section header
     ctx.fillStyle = '#888888';
     ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('PLAYERS IN ROOM', 40, 215);
+    ctx.fillText('PLAYERS IN ROOM', 40, 245);
     
     // Render player list
-    this.renderPlayerList(ctx, w, 240);
+    this.renderPlayerList(ctx, w, 270);
     
     // Update texture
     this.canvasTexture.needsUpdate = true;
@@ -185,6 +188,72 @@ export class PlayerMenu {
     const btnH = 45;
     
     this.renderToggleButton(ctx, btnX, btnY, btnW, btnH, !this.localPlayerMuted, 'selfMute');
+  }
+
+  renderVoiceConnectButton(ctx, w, y) {
+    // Get voice chat status
+    const voiceChat = this.game.voiceChat;
+    const isConnected = voiceChat && voiceChat.isConnected;
+    const isInitialized = voiceChat && voiceChat.isInitialized;
+    
+    // Status text
+    ctx.fillStyle = '#aaaaaa';
+    ctx.font = '18px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'left';
+    
+    let statusText = '🔴 Not connected';
+    let statusColor = '#ff4444';
+    
+    if (isConnected) {
+      statusText = '🟢 Voice connected';
+      statusColor = '#00ff88';
+    } else if (isInitialized) {
+      statusText = '🟡 Mic ready, not connected';
+      statusColor = '#ffaa00';
+    }
+    
+    ctx.fillStyle = statusColor;
+    ctx.fillText(statusText, 40, y + 8);
+    
+    // Connect/Reconnect button
+    const btnX = w - 180;
+    const btnY = y - 12;
+    const btnW = 140;
+    const btnH = 40;
+    
+    // Button background
+    const btnGradient = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    if (isConnected) {
+      btnGradient.addColorStop(0, 'rgba(0, 100, 50, 0.8)');
+      btnGradient.addColorStop(1, 'rgba(0, 80, 40, 0.8)');
+    } else {
+      btnGradient.addColorStop(0, 'rgba(0, 150, 100, 0.9)');
+      btnGradient.addColorStop(1, 'rgba(0, 120, 80, 0.9)');
+    }
+    
+    this.roundRect(ctx, btnX, btnY, btnW, btnH, 8);
+    ctx.fillStyle = btnGradient;
+    ctx.fill();
+    
+    // Button border
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Button text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(isConnected ? '🔄 Reconnect' : '📞 Connect', btnX + btnW/2, btnY + btnH/2 + 6);
+    
+    // Store button for click detection
+    this.buttons.push({
+      x: btnX,
+      y: btnY,
+      w: btnW,
+      h: btnH,
+      id: 'voiceConnect'
+    });
   }
 
   renderPlayerList(ctx, w, startY) {
@@ -678,6 +747,8 @@ export class PlayerMenu {
     
     if (btn.id === 'selfMute') {
       this.setPlayerMuted('local', !this.localPlayerMuted);
+    } else if (btn.id === 'voiceConnect') {
+      this.connectVoice();
     } else if (btn.id.startsWith('mute_')) {
       const playerId = btn.id.replace('mute_', '');
       const state = this.players.get(playerId) || { isMuted: false, isHidden: false };
@@ -687,6 +758,48 @@ export class PlayerMenu {
       const state = this.players.get(playerId) || { isMuted: false, isHidden: false };
       this.setPlayerHidden(playerId, !state.isHidden);
     }
+  }
+  
+  async connectVoice() {
+    console.log('[MENU] Manual voice connect requested');
+    this.game.showNotification('🎤 Connecting voice...', 2000);
+    
+    if (!this.game.voiceChat) {
+      this.game.showNotification('❌ Voice chat not available', 3000);
+      return;
+    }
+    
+    // Disconnect existing if any
+    if (this.game.voiceChat.isConnected) {
+      console.log('[MENU] Disconnecting existing voice connection');
+      this.game.voiceChat.disconnect();
+    }
+    
+    // Initialize voice chat
+    const initialized = await this.game.voiceChat.init();
+    if (!initialized) {
+      this.game.showNotification('❌ Mic init failed', 3000);
+      return;
+    }
+    
+    // Determine if we should create offer or wait for offer
+    // Player 1 creates offers, Player 2 waits
+    if (this.game.myPlayerNumber === 1) {
+      console.log('[MENU] Player 1 starting call');
+      this.game.showNotification('📞 Calling opponent...', 2000);
+      this.game.voiceChat.startCall();
+    } else {
+      console.log('[MENU] Player 2 requesting call from Player 1');
+      // Emit a request for Player 1 to call us
+      if (this.game.networkManager && this.game.networkManager.socket) {
+        this.game.networkManager.socket.emit('voiceRequestCall', {
+          roomCode: this.game.networkManager.roomCode
+        });
+        this.game.showNotification('📞 Requesting voice call...', 2000);
+      }
+    }
+    
+    this.render();
   }
   
   // Desktop/mouse click handling for testing outside VR

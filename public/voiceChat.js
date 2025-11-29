@@ -18,6 +18,15 @@ export class VoiceChat {
     this.localMuted = false;
     this.remoteMuted = false;
     
+    // Check WebRTC support
+    this.webrtcSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
+    if (!this.webrtcSupported) {
+      console.error('[VOICE] WebRTC not supported on this device!');
+      game.showNotification('❌ Voice chat not supported', 5000);
+    } else {
+      console.log('[VOICE] WebRTC is supported');
+    }
+    
     // WebRTC config (using public STUN servers)
     this.rtcConfig = {
       iceServers: [
@@ -60,6 +69,13 @@ export class VoiceChat {
     if (this.isInitialized) {
       console.log('[VOICE] Already initialized');
       return true;
+    }
+    
+    // Check WebRTC support
+    if (!this.webrtcSupported) {
+      console.error('[VOICE] WebRTC not supported!');
+      this.game.showNotification('❌ Voice not supported on this device', 3000);
+      return false;
     }
     
     try {
