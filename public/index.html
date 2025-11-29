@@ -110,6 +110,15 @@
     
     <div id="playerCount">🌍 Loading player count...</div>
     
+    <!-- Microphone permission checkbox -->
+    <div id="micPermissionDiv" style="margin: 10px 0; padding: 10px; background: rgba(0,100,50,0.3); border-radius: 8px; border: 1px solid #00ff88;">
+      <label style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <input type="checkbox" id="enableMicCheckbox" style="width: 18px; height: 18px; cursor: pointer;">
+        <span style="color: #00ff88;">🎤 Enable Voice Chat</span>
+      </label>
+      <small id="micStatus" style="color: #888; display: block; margin-top: 5px;"></small>
+    </div>
+    
     <button id="publicMatchBtn">🌍 FIND PUBLIC MATCH</button>
     <br>
     <div class="divider">OR</div>
@@ -211,6 +220,46 @@
       const searchCancelLink = document.getElementById('searchCancelLink');
       const statusText = document.getElementById('statusText');
       const lobbyDiv = document.getElementById('lobby');
+      const enableMicCheckbox = document.getElementById('enableMicCheckbox');
+      const micStatus = document.getElementById('micStatus');
+      
+      // Store mic stream globally so voiceChat can use it
+      window.preauthorizedMicStream = null;
+      
+      // Handle microphone permission checkbox
+      enableMicCheckbox.addEventListener('change', async () => {
+        if (enableMicCheckbox.checked) {
+          micStatus.textContent = 'Requesting microphone access...';
+          micStatus.style.color = '#ffaa00';
+          
+          try {
+            window.preauthorizedMicStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              },
+              video: false
+            });
+            
+            micStatus.textContent = '✓ Microphone ready for voice chat!';
+            micStatus.style.color = '#00ff88';
+            console.log('[LOBBY] Microphone permission granted');
+          } catch (error) {
+            console.error('[LOBBY] Microphone permission denied:', error);
+            micStatus.textContent = '✗ Microphone access denied';
+            micStatus.style.color = '#ff4444';
+            enableMicCheckbox.checked = false;
+          }
+        } else {
+          // Stop the stream if unchecked
+          if (window.preauthorizedMicStream) {
+            window.preauthorizedMicStream.getTracks().forEach(track => track.stop());
+            window.preauthorizedMicStream = null;
+          }
+          micStatus.textContent = '';
+        }
+      });
 
       function generateCode() { return Math.random().toString(36).substring(2, 6).toUpperCase(); }
 

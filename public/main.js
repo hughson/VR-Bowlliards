@@ -16,6 +16,8 @@ import { SoundManager } from './soundManager.js';
 import { CelebrationSystem } from './celebrationSystem.js';
 import { NetworkManager } from './networkManager.js';
 import { StatsTracker } from './statsTracker.js';
+import { PlayerMenu } from './playerMenu.js';
+import { VoiceChat } from './voiceChat.js';
 
 class VRBowlliardsGame {
   constructor() {
@@ -288,6 +290,12 @@ class VRBowlliardsGame {
     this.myPlayerName = localStorage.getItem('bowlliards_playerName') || "Player";
     
     this.networkManager = new NetworkManager(this);
+    
+    // Initialize player menu (VR menu system)
+    this.playerMenu = new PlayerMenu(this);
+    
+    // Initialize voice chat
+    this.voiceChat = new VoiceChat(this);
     
     // Connect to server immediately to get player count for lobby
     // (Don't join a room yet - just connect for stats)
@@ -1283,6 +1291,7 @@ class VRBowlliardsGame {
     this.updateLocomotion(delta);
     if (this.celebrationSystem) this.celebrationSystem.update(delta);
     if (this.settingsPanel) this.settingsPanel.update();
+    if (this.playerMenu) this.playerMenu.update(delta);
     if (this.networkManager) {
         this.networkManager.sendAvatarUpdate();
         this.networkManager.updateLocalNameLabel(); // Update local player name label

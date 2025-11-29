@@ -738,6 +738,35 @@ io.on('connection', (socket) => {
     });
   });
   // -------------------------------------------
+  
+  // ============================================
+  // VOICE CHAT SIGNALING
+  // ============================================
+  
+  socket.on('voiceOffer', (data) => {
+    console.log(`[VOICE] ==============================`);
+    console.log(`[VOICE] Relaying OFFER in room ${data.roomCode}`);
+    console.log(`[VOICE] From socket: ${socket.id}`);
+    const room = rooms.get(data.roomCode);
+    if (room) {
+      const targetPlayer = room.player1 === socket.id ? room.player2 : room.player1;
+      console.log(`[VOICE] To socket: ${targetPlayer}`);
+    }
+    console.log(`[VOICE] ==============================`);
+    socket.to(data.roomCode).emit('voiceOffer', { offer: data.offer });
+  });
+  
+  socket.on('voiceAnswer', (data) => {
+    console.log(`[VOICE] ==============================`);
+    console.log(`[VOICE] Relaying ANSWER in room ${data.roomCode}`);
+    console.log(`[VOICE] From socket: ${socket.id}`);
+    console.log(`[VOICE] ==============================`);
+    socket.to(data.roomCode).emit('voiceAnswer', { answer: data.answer });
+  });
+  
+  socket.on('voiceIceCandidate', (data) => {
+    socket.to(data.roomCode).emit('voiceIceCandidate', { candidate: data.candidate });
+  });
 
   // --- NEW: Score Update (After Each Inning) ---
   socket.on('scoreUpdate', (data) => {

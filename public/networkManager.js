@@ -14,6 +14,7 @@ export class NetworkManager {
     this.ghostHand1 = null;
     this.ghostHand2 = null;
     this.ghostNameLabel = null;
+    this.ghostHiddenByUser = false; // Track if user wants ghost hidden
     
     this.localNameLabel = null;
     
@@ -129,6 +130,15 @@ export class NetworkManager {
       this.localNameLabel.visible = this.game.isMultiplayer && this.game.gameStarted;
       this.game.scene.add(this.localNameLabel);
       this.game.myPlayerName = newName;
+    }
+  }
+
+  // Set opponent ghost avatar visibility (called from PlayerMenu)
+  setGhostVisible(visible) {
+    this.ghostHiddenByUser = !visible;
+    if (this.ghostGroup) {
+      this.ghostGroup.visible = visible;
+      console.log('[NETWORK] Ghost avatar visibility:', visible, '(user hidden:', this.ghostHiddenByUser, ')');
     }
   }
 
@@ -308,6 +318,31 @@ export class NetworkManager {
         this.game.soundManager.playSound('yourTurn', null, 1.0);
       }
       
+      // Initialize voice chat for both players
+      if (this.game.voiceChat) {
+        // Both players initialize their microphone
+        console.log('[NETWORK] Initializing voice chat...');
+        this.game.voiceChat.init().then(() => {
+          console.log('[NETWORK] Voice chat initialized for player', this.game.myPlayerNumber);
+          
+          // Player 1 initiates the call after a longer delay to ensure Player 2 is ready
+          if (this.game.myPlayerNumber === 1) {
+            console.log('[NETWORK] Player 1 will initiate voice chat in 2 seconds...');
+            this.game.showNotification('Starting voice chat...', 2000);
+            setTimeout(() => {
+              console.log('[NETWORK] Player 1 initiating voice chat call NOW');
+              this.game.voiceChat.startCall();
+            }, 2000); // Increased delay to 2 seconds
+          } else {
+            console.log('[NETWORK] Player 2 voice chat initialized, waiting for offer...');
+            this.game.showNotification('🎤 Voice ready, waiting for call...', 2000);
+          }
+        }).catch(err => {
+          console.error('[NETWORK] Voice chat init failed:', err);
+          this.game.showNotification('Voice chat unavailable', 3000);
+        });
+      }
+      
       console.log('[NETWORK] ===== END GAME READY =====');
     });
 
@@ -332,7 +367,10 @@ export class NetworkManager {
 
     // Opponent avatar movement
     this.socket.on('opponentMoved', (data) => {
-      this.ghostGroup.visible = true;
+      // Only show ghost if user hasn't hidden it
+      if (!this.ghostHiddenByUser) {
+        this.ghostGroup.visible = true;
+      }
       this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
       this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
       
@@ -474,6 +512,35 @@ export class NetworkManager {
       if (this.game.poolTable && this.game.poolTable.physicsEngine) {
         this.game.poolTable.physicsEngine.updateAllParams(params);
         this.game.showNotification('Physics settings updated!', 2000);
+      }
+    });
+    
+    // ============================================
+    // VOICE CHAT SIGNALING
+    // ============================================
+    
+    this.socket.on('voiceOffer', async (data) => {
+      console.log('[NETWORK] ====== RECEIVED VOICE OFFER ======');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleOffer(data.offer);
+      } else {
+        console.error('[NETWORK] voiceChat not available!');
+      }
+    });
+    
+    this.socket.on('voiceAnswer', async (data) => {
+      console.log('[NETWORK] ====== RECEIVED VOICE ANSWER ======');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleAnswer(data.answer);
+      } else {
+        console.error('[NETWORK] voiceChat not available!');
+      }
+    });
+    
+    this.socket.on('voiceIceCandidate', async (data) => {
+      console.log('[NETWORK] Received voice ICE candidate');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleRemoteIceCandidate(data.candidate);
       }
     });
   }
