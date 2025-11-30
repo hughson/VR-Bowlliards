@@ -482,12 +482,6 @@ export class NetworkManager {
       console.log('[NETWORK] ===== END OPPONENT SCORE UPDATE =====');
     });
 
-    // Opponent requests new game
-    this.socket.on('opponentNewGameRequest', () => {
-      console.log('[NETWORK] Opponent requested new game');
-      this.game.onOpponentNewGameRequest();
-    });
-
     // Server announcing whose turn it is
     this.socket.on('turnChanged', (data) => {
       console.log('[NETWORK] ===== TURN CHANGED =====');
@@ -708,15 +702,9 @@ export class NetworkManager {
   sendScoreUpdate(scoresData) {
     if (!this.isConnected || !this.roomCode) return;
     console.log('[NETWORK] Sending score update (inning complete)');
-    this.socket.emit('scoreUpdate', {
-      roomCode: this.roomCode,
-      scores: scoresData
+    this.socket.emit('scoreUpdate', { 
+      roomCode: this.roomCode, 
+      scores: scoresData 
     });
-  }
-
-  sendNewGameRequest() {
-    if (!this.isConnected || !this.roomCode) return;
-    console.log('[NETWORK] Sending new game request');
-    this.socket.emit('newGameRequest', { roomCode: this.roomCode });
   }
 }

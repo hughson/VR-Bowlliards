@@ -776,8 +776,7 @@ class VRBowlliardsGame {
     }
 
     if (cueBallPocketed) {
-      const ballsPocketedOnFoul = pocketedBalls.length;
-      const foulResult = this.rulesEngine.processFoulAfterBreak(ballsPocketedOnFoul);
+      const foulResult = this.rulesEngine.processFoulAfterBreak();
       if (foulResult.gameOver) {
          this.showNotification('Foul, game over!', 2000);
          await this.advanceFrame();
@@ -805,8 +804,7 @@ class VRBowlliardsGame {
     
     if (!cueBallHitObject) {
         this.showNotification('Foul! Play from where it lies.', 2000);
-        const ballsPocketedOnFoul = pocketedBalls.length;
-        const foulResult = this.rulesEngine.processNoHitFoul(ballsPocketedOnFoul);
+        const foulResult = this.rulesEngine.processNoHitFoul();
         if (foulResult.gameOver) {
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
@@ -1181,54 +1179,6 @@ class VRBowlliardsGame {
     }
   }
 
-  resetMultiplayerGame() {
-    console.log('[GAME] Resetting multiplayer game');
-
-    // Reset both local and remote rules engines
-    this.rulesEngine = new BowlliardsRulesEngine();
-    this.remoteRulesEngine = new BowlliardsRulesEngine();
-
-    // Reset table and ball state
-    this.poolTable.setupBalls();
-    this.poolTable.resetShotTracking();
-
-    // Reset game state variables
-    this.breakShotTaken = false;
-    this.currentInning = 1;
-    this.frameJustStarted = true;
-    this.ballsSettled = true;
-    this.isMyTurn = (this.myPlayerNumber === 1); // Player 1 starts
-    this.gameState = this.isMyTurn ? 'ready' : 'waiting';
-
-    // Enable ball in hand for player 1
-    if (this.isMyTurn) {
-      this.ballInHand.enable(true);
-      this.showNotification('New game! Your turn to break.', 2500);
-    } else {
-      this.ballInHand.disable();
-      this.showNotification('New game! Waiting for opponent to break.', 2500);
-    }
-
-    // Reset scoreboard
-    this.scoreboard.setupBoard('multi');
-    this.scoreboard.drawEmptyScore();
-    this.updateScoreboard();
-
-    // Update cue controller
-    if (this.cueController) {
-      this.cueController.update(this.isMyTurn);
-    }
-  }
-
-  onOpponentNewGameRequest() {
-    console.log('[GAME] Opponent requested new game');
-    if (this.gameState === 'gameOver') {
-      this.resetMultiplayerGame();
-    } else {
-      console.log('[GAME] Ignoring new game request - game not over yet');
-    }
-  }
-
   updateScoreboard() {
     if (this.isMultiplayer) {
       // Ensure remoteRulesEngine exists
@@ -1281,24 +1231,13 @@ class VRBowlliardsGame {
   }
 
   startNewGame() {
-    // Block reset in multiplayer mode unless game is over
-    if (this.isMultiplayer && this.gameState !== 'gameOver') {
-      this.showNotification('Reset disabled - game in progress', 2500);
+    // Block reset in multiplayer mode
+    if (this.isMultiplayer) {
+      this.showNotification('Reset disabled in multiplayer mode', 2500);
       console.log('[GAME] Reset blocked - multiplayer game in progress');
       return;
     }
-
-    // If multiplayer and game is over, send new game request to opponent
-    if (this.isMultiplayer && this.gameState === 'gameOver') {
-      console.log('[GAME] Requesting new multiplayer game');
-      this.showNotification('Starting new game...', 2000);
-      if (this.networkManager) {
-        this.networkManager.sendNewGameRequest();
-      }
-      this.resetMultiplayerGame();
-      return;
-    }
-
+    
     this.rulesEngine = new BowlliardsRulesEngine();
     this.poolTable.setupBalls();  // Reset balls on table
     this.poolTable.resetShotTracking();  // Clear any previous shot state
@@ -1308,13 +1247,13 @@ class VRBowlliardsGame {
     this.ballsSettled = true;
     this.gameState = 'ready';
     this.ballInHand.enable(true);
-
+    
     // Properly redraw scoreboard
     this.scoreboard.setupBoard('single');
     this.scoreboard.drawEmptyScore();
     this.updateScoreboard();
     this.leaderboardDisplay.update(this.leaderboard);
-
+    
     // Update cue controller
     if (this.cueController) {
       this.cueController.update(true);
