@@ -552,7 +552,6 @@ export class PlayerMenu {
     
     this.isOpen = false;
     this.targetScale = 0;
-    this._menuInitialRotationSet = false; // Reset so menu faces user next time
     
     // Play close sound
     if (this.game.soundManager) {
@@ -566,8 +565,9 @@ export class PlayerMenu {
     const session = this.game.renderer.xr.getSession();
     
     if (session) {
-      // In VR: Attach to left controller
-      const leftController = this.game.renderer.xr.getController(0); // Usually left controller
+      // In VR: Attach to left controller but face the user
+      // Controller 1 is typically left hand on Quest
+      const leftController = this.game.renderer.xr.getController(1);
       
       if (leftController) {
         // Get controller world position
@@ -581,16 +581,19 @@ export class PlayerMenu {
           controllerPos.z
         );
         
-        // Get user's head position for facing direction (only on first open)
-        if (!this._menuInitialRotationSet) {
-          const cameraPos = new THREE.Vector3();
-          this.game.renderer.xr.getCamera().getWorldPosition(cameraPos);
-          
-          // Make menu face the camera horizontally only (no tilt)
-          const lookTarget = new THREE.Vector3(cameraPos.x, this.menuGroup.position.y, cameraPos.z);
-          this.menuGroup.lookAt(lookTarget);
-          this._menuInitialRotationSet = true;
-        }
+        // Get user's head position
+        const cameraPos = new THREE.Vector3();
+        this.game.renderer.xr.getCamera().getWorldPosition(cameraPos);
+        
+        // Calculate direction from menu to camera
+        const direction = new THREE.Vector3();
+        direction.subVectors(cameraPos, this.menuGroup.position);
+        direction.y = 0; // Keep it level (only rotate horizontally)
+        direction.normalize();
+        
+        // Create rotation from direction (add PI to flip it to face user)
+        const angle = Math.atan2(direction.x, direction.z) + Math.PI;
+        this.menuGroup.rotation.set(0, angle, 0);
       }
     } else {
       // Desktop mode: Position in front of camera
