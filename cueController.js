@@ -21,13 +21,17 @@ export class CueController {
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = 2.0;
 
+    // Raycaster for anti-tunneling detection on fast cue strokes
+    this.tunnelingRaycaster = new THREE.Raycaster();
+
     const dotGeo = new THREE.SphereGeometry(0.005, 12, 12);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
     this.aimDot = new THREE.Mesh(dotGeo, dotMat);
     this.aimDot.visible = false;
     this.scene.add(this.aimDot);
-    
+
     this.lastIntersectDistance = Infinity;
+    this.lastTipWorldPos = null; // Track previous tip position for tunneling detection
 
     this.lockedAimQuaternion = new THREE.Quaternion();
     this.lockedBridgePos = new THREE.Vector3(); 
@@ -120,6 +124,7 @@ export class CueController {
     this.controlState = 'IDLE';
     this.strokeVelocity = 0;
     this.velocityHistory = [];
+    this.lastTipWorldPos = null; // Reset tunneling detection when unlocking
   }
 
 
@@ -221,17 +226,41 @@ export class CueController {
 
       // Check if cue tip is touching ball
       let cueTipTouchingBall = false;
+      let tunnelingDetected = false;
+
       if (cueBall && this.cueStick.userData.tipMesh) {
         const tipWorldPos = new THREE.Vector3();
         this.cueStick.userData.tipMesh.getWorldPosition(tipWorldPos);
         const distanceToball = tipWorldPos.distanceTo(cueBall.position);
         const ballRadius = 0.028;
-        const tipContactThreshold = 0.015; // Must be within ~0.5 inch of ball surface
+        const tipContactThreshold = 0.06; // ~6cm from ball surface = tip touching or very close
         cueTipTouchingBall = distanceToball < (ballRadius + tipContactThreshold);
+
+        // ANTI-TUNNELING: Check if cue tip passed through ball between frames
+        if (this.lastTipWorldPos && this.strokeVelocity > 1.0) {
+          const movement = new THREE.Vector3().subVectors(tipWorldPos, this.lastTipWorldPos);
+          const movementDistance = movement.length();
+
+          // Only check if cue moved significantly (fast stroke)
+          if (movementDistance > 0.01) {
+            const movementDir = movement.normalize();
+            this.tunnelingRaycaster.set(this.lastTipWorldPos, movementDir);
+            this.tunnelingRaycaster.far = movementDistance + 0.1; // Raycast along movement path
+
+            const intersects = this.tunnelingRaycaster.intersectObject(cueBall, false);
+            if (intersects.length > 0) {
+              tunnelingDetected = true;
+              console.log('[CUE] Tunneling detected! Fast stroke passed through ball.');
+            }
+          }
+        }
+
+        // Store current tip position for next frame
+        this.lastTipWorldPos = tipWorldPos.clone();
       }
-      
-      // SHOT TRIGGER
-      if (cueTipTouchingBall && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.001) {
+
+      // Shot triggers when: cue tip collides with ball (or tunneling detected) AND moving forward with sufficient velocity
+      if ((cueTipTouchingBall || tunnelingDetected) && distanceAlongCue >= this.hitThreshold && this.strokeVelocity > 0.1) {
         
         // Calculate power (0-1 range)
         const power = Math.min(this.strokeVelocity / this.maxPower, 1.0);
@@ -300,6 +329,7 @@ export class CueController {
         this.controlState = 'IDLE';
         this.strokeVelocity = 0;
         this.velocityHistory = [];
+        this.lastTipWorldPos = null; // Reset tunneling detection after shot
       }
 
       this.lastStrokePos.copy(strokePos);

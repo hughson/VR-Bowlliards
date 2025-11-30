@@ -26,6 +26,29 @@ export class BowlliardsRulesEngine {
     }
   }
 
+  // Reset the rules engine to initial state (for starting new game)
+  reset() {
+    this.frames = [];
+    this.currentFrame = 0;
+    this.currentInning = 1;
+    this.breakProcessed = false;
+    this.bonusRolls = 0;
+    this.breakBalls = [];
+
+    for (let i = 0; i < 10; i++) {
+      this.frames.push({
+        inning1: { scored: 0, complete: false },
+        inning2: { scored: 0, complete: false },
+        bonus: [],
+        score: 0,
+        isStrike: false,
+        isSpare: false,
+        isOpen: false
+      });
+      this.breakBalls.push(0);
+    }
+  }
+
   // --- BREAK / STATE HELPERS ---
 
   isBreakShot() {
@@ -279,16 +302,17 @@ export class BowlliardsRulesEngine {
   /**
    * Generic foul handler (used in older code paths).
    * Returns { grantBallInHand, inningComplete } plus 10th-frame handling.
+   * @param {number} ballsPocketedOnFoul - Number of balls pocketed during the foul shot
    */
-  processFoul() {
+  processFoul(ballsPocketedOnFoul = 0) {
     // Foul during bonus rolls in 10th frame
     if (this.bonusRolls > 0) {
       const frame10 = this.frames[9];
       const currentBonusIndex = frame10.isStrike ? (2 - this.bonusRolls) : 0;
-      
-      // Foul ends this bonus inning with whatever was accumulated (could be 0)
+
+      // Foul ends this bonus inning with whatever was accumulated (count balls pocketed)
       if (frame10.bonus[currentBonusIndex] === undefined) {
-        frame10.bonus[currentBonusIndex] = 0;
+        frame10.bonus[currentBonusIndex] = ballsPocketedOnFoul;
       }
       
       this.bonusRolls--;
@@ -314,12 +338,14 @@ export class BowlliardsRulesEngine {
     // Special logic for 10th frame foul
     if (this.currentFrame === 9) {
       if (this.currentInning === 1) {
+        frame.inning1.balls = ballsPocketedOnFoul;
         frame.inning1.complete = true;
         this.currentInning = 2;
         this.calculateScores();
         return { grantBallInHand: true, inningComplete: false };
       } else {
         frame.inning1.complete = true;  // Ensure inning1 is complete for scoring
+        frame.inning2.balls = ballsPocketedOnFoul;
         frame.inning2.complete = true;
         frame.isOpen = true;
         this.calculateScores();
@@ -329,11 +355,13 @@ export class BowlliardsRulesEngine {
 
     // Frames 1–9
     if (this.currentInning === 1) {
+      frame.inning1.balls = ballsPocketedOnFoul;
       frame.inning1.complete = true;
       this.currentInning = 2;
       this.calculateScores();
       return { grantBallInHand: true, inningComplete: false };
     } else {
+      frame.inning2.balls = ballsPocketedOnFoul;
       frame.inning2.complete = true;
       frame.isOpen = true;
       this.calculateScores();
@@ -345,9 +373,10 @@ export class BowlliardsRulesEngine {
    * Foul after the break (cue ball pocketed, special branch in main.js)
    * We wrap processFoul() and add flags that main.js expects:
    *   gameOver, isTenthFrame, isStrike, isSpare
+   * @param {number} ballsPocketedOnFoul - Number of balls pocketed during the foul shot
    */
-  processFoulAfterBreak() {
-    const res = this.processFoul();
+  processFoulAfterBreak(ballsPocketedOnFoul = 0) {
+    const res = this.processFoul(ballsPocketedOnFoul);
     const frame = this.frames[this.currentFrame];
 
     return {
@@ -364,26 +393,31 @@ export class BowlliardsRulesEngine {
    * main.js expects:
    *   { gameOver, inningComplete, isTenthFrame, isStrike, isSpare }
    * and *no* ball-in-hand.
+   * @param {number} ballsPocketedOnFoul - Number of balls pocketed during the foul shot
    */
-  processNoHitFoul() {
+  processNoHitFoul(ballsPocketedOnFoul = 0) {
     const frame = this.frames[this.currentFrame];
 
     if (this.currentFrame === 9) {
       // 10th frame
       if (this.currentInning === 1) {
+        frame.inning1.balls = ballsPocketedOnFoul;
         frame.inning1.complete = true;
         this.currentInning = 2;
       } else {
         frame.inning1.complete = true;  // Ensure inning1 is complete for scoring
+        frame.inning2.balls = ballsPocketedOnFoul;
         frame.inning2.complete = true;
         frame.isOpen = true;
       }
     } else {
       // Frames 1–9
       if (this.currentInning === 1) {
+        frame.inning1.balls = ballsPocketedOnFoul;
         frame.inning1.complete = true;
         this.currentInning = 2;
       } else {
+        frame.inning2.balls = ballsPocketedOnFoul;
         frame.inning2.complete = true;
         frame.isOpen = true;
       }

@@ -49,6 +49,45 @@
     #waitingScreen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 20, 40, 0.95); padding: 30px; border: 2px solid #00ff88; border-radius: 15px; text-align: center; z-index: 20; min-width: 320px; box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
     .spinner { border: 3px solid #333; border-top: 3px solid #00ff88; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    /* Non-blocking searching indicator (shows while practicing) */
+    #searchingIndicator {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 20, 40, 0.9);
+      padding: 15px 20px;
+      border: 2px solid #00cc44;
+      border-radius: 10px;
+      z-index: 15;
+      box-shadow: 0 0 15px rgba(0, 204, 68, 0.3);
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    #searchingIndicator .mini-spinner {
+      border: 2px solid #333;
+      border-top: 2px solid #00cc44;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+    }
+    #searchingIndicator .search-text {
+      color: #00cc44;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    #searchingIndicator .cancel-link {
+      color: #ff6666;
+      text-decoration: underline;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+    #searchingIndicator .cancel-link:hover {
+      color: #ff4444;
+    }
   </style>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -71,6 +110,15 @@
     
     <div id="playerCount">🌍 Loading player count...</div>
     
+    <!-- Microphone permission checkbox -->
+    <div id="micPermissionDiv" style="margin: 10px 0; padding: 10px; background: rgba(0,100,50,0.3); border-radius: 8px; border: 1px solid #00ff88;">
+      <label style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <input type="checkbox" id="enableMicCheckbox" style="width: 18px; height: 18px; cursor: pointer;">
+        <span style="color: #00ff88;">🎤 Enable Voice Chat</span>
+      </label>
+      <small id="micStatus" style="color: #888; display: block; margin-top: 5px;"></small>
+    </div>
+    
     <button id="publicMatchBtn">🌍 FIND PUBLIC MATCH</button>
     <br>
     <div class="divider">OR</div>
@@ -88,6 +136,13 @@
     <div class="spinner"></div>
     <p style="color:#ccc; margin: 20px 0;">Searching for available players...</p>
     <button id="cancelBtn">CANCEL</button>
+  </div>
+  
+  <!-- Non-blocking searching indicator (shows while practicing) -->
+  <div id="searchingIndicator" class="hidden">
+    <div class="mini-spinner"></div>
+    <span class="search-text">Searching for opponent...</span>
+    <span class="cancel-link" id="searchCancelLink">Cancel</span>
   </div>
 
   <div id="info">
@@ -134,6 +189,7 @@
     
     window.showLobby = function() {
       document.getElementById('lobby').classList.remove('hidden');
+      document.getElementById('searchingIndicator').classList.add('hidden');
       document.getElementById('statusText').textContent = "Matchmaking canceled.";
       document.getElementById('statusText').style.color = '#ff4444';
     };
@@ -141,6 +197,18 @@
     window.hideAllOverlays = function() {
       document.getElementById('lobby').classList.add('hidden');
       document.getElementById('waitingScreen').classList.add('hidden');
+      document.getElementById('searchingIndicator').classList.add('hidden');
+    };
+    
+    // New: Show/hide non-blocking searching indicator (for practice while waiting)
+    window.showSearchingIndicator = function() {
+      document.getElementById('lobby').classList.add('hidden');
+      document.getElementById('waitingScreen').classList.add('hidden');
+      document.getElementById('searchingIndicator').classList.remove('hidden');
+    };
+    
+    window.hideSearchingIndicator = function() {
+      document.getElementById('searchingIndicator').classList.add('hidden');
     };
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -149,8 +217,49 @@
       const privateMatchBtn = document.getElementById('privateMatchBtn');
       const singleBtn = document.getElementById('singlePlayerBtn');
       const cancelBtn = document.getElementById('cancelBtn');
+      const searchCancelLink = document.getElementById('searchCancelLink');
       const statusText = document.getElementById('statusText');
       const lobbyDiv = document.getElementById('lobby');
+      const enableMicCheckbox = document.getElementById('enableMicCheckbox');
+      const micStatus = document.getElementById('micStatus');
+      
+      // Store mic stream globally so voiceChat can use it
+      window.preauthorizedMicStream = null;
+      
+      // Handle microphone permission checkbox
+      enableMicCheckbox.addEventListener('change', async () => {
+        if (enableMicCheckbox.checked) {
+          micStatus.textContent = 'Requesting microphone access...';
+          micStatus.style.color = '#ffaa00';
+          
+          try {
+            window.preauthorizedMicStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              },
+              video: false
+            });
+            
+            micStatus.textContent = '✓ Microphone ready for voice chat!';
+            micStatus.style.color = '#00ff88';
+            console.log('[LOBBY] Microphone permission granted');
+          } catch (error) {
+            console.error('[LOBBY] Microphone permission denied:', error);
+            micStatus.textContent = '✗ Microphone access denied';
+            micStatus.style.color = '#ff4444';
+            enableMicCheckbox.checked = false;
+          }
+        } else {
+          // Stop the stream if unchecked
+          if (window.preauthorizedMicStream) {
+            window.preauthorizedMicStream.getTracks().forEach(track => track.stop());
+            window.preauthorizedMicStream = null;
+          }
+          micStatus.textContent = '';
+        }
+      });
 
       function generateCode() { return Math.random().toString(36).substring(2, 6).toUpperCase(); }
 
@@ -169,8 +278,15 @@
         // Don't hide lobby yet - wait for server response
       });
       
-      // CANCEL BUTTON
+      // CANCEL BUTTON (blocking waiting screen)
       cancelBtn.addEventListener('click', () => {
+        if (window.game && window.game.networkManager) {
+          window.game.networkManager.cancelMatchmaking();
+        }
+      });
+      
+      // CANCEL LINK (non-blocking searching indicator - while practicing)
+      searchCancelLink.addEventListener('click', () => {
         if (window.game && window.game.networkManager) {
           window.game.networkManager.cancelMatchmaking();
         }

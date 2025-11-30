@@ -14,6 +14,7 @@ export class NetworkManager {
     this.ghostHand1 = null;
     this.ghostHand2 = null;
     this.ghostNameLabel = null;
+    this.ghostHiddenByUser = false; // Track if user wants ghost hidden
     
     this.localNameLabel = null;
     
@@ -132,6 +133,15 @@ export class NetworkManager {
     }
   }
 
+  // Set opponent ghost avatar visibility (called from PlayerMenu)
+  setGhostVisible(visible) {
+    this.ghostHiddenByUser = !visible;
+    if (this.ghostGroup) {
+      this.ghostGroup.visible = visible;
+      console.log('[NETWORK] Ghost avatar visibility:', visible, '(user hidden:', this.ghostHiddenByUser, ')');
+    }
+  }
+
   connect() {
     if (typeof io === 'undefined') {
       console.warn('[NETWORK] Socket.io not loaded - multiplayer disabled');
@@ -162,24 +172,13 @@ export class NetworkManager {
       this.game.myPlayerNumber = data.playerNumber;
       this.roomCode = data.roomCode;
       
-      // Hide both waiting screen AND lobby (in case player was matched immediately)
-      if (window.hideCancelButton) {
-        window.hideCancelButton();
-      }
-      if (window.hideAllOverlays) {
-        window.hideAllOverlays();
-      }
-      
-      // Player 1 (first to join) is host and goes first
-      const isMyTurn = (data.playerNumber === 1);
-      console.log('[NETWORK] My Turn:', isMyTurn ? 'YES (I GO FIRST)' : 'NO (WAITING)');
-      
-      if (this.game.setTurnState) {
-        this.game.setTurnState(isMyTurn);
-      }
+      // Note: Don't hide overlays or set turn state here.
+      // If waiting for opponent → waitingForOpponent event will start practice mode
+      // If matched immediately → gameReady event will setup multiplayer
+      // Just store the player number for now.
       
       const roleText = data.playerNumber === 1 ? 'HOST (Player 1)' : 'GUEST (Player 2)';
-      this.game.showNotification(`You are ${roleText}. ${isMyTurn ? 'Your turn!' : 'Waiting for opponent...'}`, 3000);
+      console.log('[NETWORK] Assigned as', roleText);
       console.log('[NETWORK] ===== END PLAYER ASSIGNMENT =====');
     });
 
@@ -193,10 +192,18 @@ export class NetworkManager {
     this.socket.on('waitingForOpponent', (data) => {
       console.log('[NETWORK] Waiting for opponent in room:', data.roomCode);
       this.roomCode = data.roomCode;
-      this.game.showNotification('Waiting for opponent to join...', 10000);
       
-      // Show cancel button if available
-      if (window.showCancelButton) {
+      // Start practice mode while waiting (instead of just showing cancel button)
+      if (this.game.startPracticeWhileWaiting) {
+        this.game.startPracticeWhileWaiting();
+      } else {
+        this.game.showNotification('Waiting for opponent to join...', 10000);
+      }
+      
+      // Show the searching indicator (non-blocking version)
+      if (window.showSearchingIndicator) {
+        window.showSearchingIndicator();
+      } else if (window.showCancelButton) {
         window.showCancelButton();
       }
     });
@@ -206,14 +213,36 @@ export class NetworkManager {
       console.log('[NETWORK] Matchmaking canceled');
       this.roomCode = null;
       this.game.isMultiplayer = false;
-      this.game.showNotification('Matchmaking canceled', 2000);
       
-      // Hide cancel button and show lobby
-      if (window.hideCancelButton) {
-        window.hideCancelButton();
-      }
-      if (window.showLobby) {
-        window.showLobby();
+      // If was in practice mode, clean up but keep playing as single player (don't show lobby)
+      if (this.game.isPracticeWhileWaiting) {
+        console.log('[NETWORK] Converting practice mode to regular single player');
+        this.game.isPracticeWhileWaiting = false;
+        // Keep the practice rules engine as the real one (don't reset progress)
+        this.game._realRulesEngine = null;
+        this.game.showNotification('Matchmaking canceled - continuing as single player', 3000);
+        
+        // Just hide the searching indicator, don't show lobby
+        if (window.hideSearchingIndicator) {
+          window.hideSearchingIndicator();
+        }
+        if (window.hideCancelButton) {
+          window.hideCancelButton();
+        }
+        // Player continues their practice game as single player
+      } else {
+        // Normal flow - show lobby
+        this.game.showNotification('Matchmaking canceled', 2000);
+        
+        if (window.hideCancelButton) {
+          window.hideCancelButton();
+        }
+        if (window.hideSearchingIndicator) {
+          window.hideSearchingIndicator();
+        }
+        if (window.showLobby) {
+          window.showLobby();
+        }
       }
     });
     
@@ -244,21 +273,74 @@ export class NetworkManager {
       
       console.log('[NETWORK] Opponent name:', this.game.remotePlayerName);
       
-      // Hide all overlays (waiting screen AND lobby)
+      // Hide all overlays (waiting screen, lobby, AND searching indicator)
       if (window.hideCancelButton) {
         window.hideCancelButton();
+      }
+      if (window.hideSearchingIndicator) {
+        window.hideSearchingIndicator();
       }
       if (window.hideAllOverlays) {
         window.hideAllOverlays();
       }
       
-      this.game.isMultiplayer = true;
-      this.game.gameStarted = true;  // Mark game as actually started
-      this.game.showNotification('Both players connected! Game starting...', 3000);
+      // If player was in practice mode, stop it and start real multiplayer
+      if (this.game.isPracticeWhileWaiting && this.game.stopPracticeAndStartMultiplayer) {
+        console.log('[NETWORK] Stopping practice mode, starting multiplayer...');
+        this.game.stopPracticeAndStartMultiplayer();
+        this.game.showNotification(`Opponent found: ${this.game.remotePlayerName}! Match starting...`, 3000);
+      } else {
+        // Normal flow (wasn't in practice mode - either joined existing room or private room)
+        this.game.isMultiplayer = true;
+        this.game.gameStarted = true;
+        
+        // Setup multiplayer scoreboard
+        if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+          this.game.scoreboard.setupBoard('multi');
+        }
+        
+        // Ensure remote rules engine exists
+        if (!this.game.remoteRulesEngine) {
+          this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+        }
+        
+        // Set turn state - Player 1 goes first
+        const isMyTurn = (this.game.myPlayerNumber === 1);
+        if (this.game.setTurnState) {
+          this.game.setTurnState(isMyTurn);
+        }
+        
+        this.game.showNotification('Both players connected! Game starting...', 3000);
+      }
       
       // Play "It is your turn" sound for Player 1 now that game has started
       if (this.game.myPlayerNumber === 1 && this.game.soundManager) {
         this.game.soundManager.playSound('yourTurn', null, 1.0);
+      }
+      
+      // Initialize voice chat for both players
+      if (this.game.voiceChat) {
+        // Both players initialize their microphone
+        console.log('[NETWORK] Initializing voice chat...');
+        this.game.voiceChat.init().then(() => {
+          console.log('[NETWORK] Voice chat initialized for player', this.game.myPlayerNumber);
+          
+          // Player 1 initiates the call after a longer delay to ensure Player 2 is ready
+          if (this.game.myPlayerNumber === 1) {
+            console.log('[NETWORK] Player 1 will initiate voice chat in 2 seconds...');
+            this.game.showNotification('Starting voice chat...', 2000);
+            setTimeout(() => {
+              console.log('[NETWORK] Player 1 initiating voice chat call NOW');
+              this.game.voiceChat.startCall();
+            }, 2000); // Increased delay to 2 seconds
+          } else {
+            console.log('[NETWORK] Player 2 voice chat initialized, waiting for offer...');
+            this.game.showNotification('🎤 Voice ready, waiting for call...', 2000);
+          }
+        }).catch(err => {
+          console.error('[NETWORK] Voice chat init failed:', err);
+          this.game.showNotification('Voice chat unavailable', 3000);
+        });
       }
       
       console.log('[NETWORK] ===== END GAME READY =====');
@@ -285,7 +367,10 @@ export class NetworkManager {
 
     // Opponent avatar movement
     this.socket.on('opponentMoved', (data) => {
-      this.ghostGroup.visible = true;
+      // Only show ghost if user hasn't hidden it
+      if (!this.ghostHiddenByUser) {
+        this.ghostGroup.visible = true;
+      }
       this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
       this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
       
@@ -397,6 +482,12 @@ export class NetworkManager {
       console.log('[NETWORK] ===== END OPPONENT SCORE UPDATE =====');
     });
 
+    // Opponent requests new game
+    this.socket.on('opponentNewGameRequest', () => {
+      console.log('[NETWORK] Opponent requested new game');
+      this.game.onOpponentNewGameRequest();
+    });
+
     // Server announcing whose turn it is
     this.socket.on('turnChanged', (data) => {
       console.log('[NETWORK] ===== TURN CHANGED =====');
@@ -429,6 +520,45 @@ export class NetworkManager {
         this.game.showNotification('Physics settings updated!', 2000);
       }
     });
+    
+    // ============================================
+    // VOICE CHAT SIGNALING
+    // ============================================
+    
+    this.socket.on('voiceOffer', async (data) => {
+      console.log('[NETWORK] ====== RECEIVED VOICE OFFER ======');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleOffer(data.offer);
+      } else {
+        console.error('[NETWORK] voiceChat not available!');
+      }
+    });
+    
+    this.socket.on('voiceAnswer', async (data) => {
+      console.log('[NETWORK] ====== RECEIVED VOICE ANSWER ======');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleAnswer(data.answer);
+      } else {
+        console.error('[NETWORK] voiceChat not available!');
+      }
+    });
+    
+    this.socket.on('voiceIceCandidate', async (data) => {
+      console.log('[NETWORK] Received voice ICE candidate');
+      if (this.game.voiceChat) {
+        await this.game.voiceChat.handleRemoteIceCandidate(data.candidate);
+      }
+    });
+    
+    // Player 2 requested a voice call, Player 1 should initiate
+    this.socket.on('voiceRequestCall', async () => {
+      console.log('[NETWORK] ====== VOICE CALL REQUESTED ======');
+      if (this.game.myPlayerNumber === 1 && this.game.voiceChat) {
+        this.game.showNotification('📞 Opponent requested voice call', 2000);
+        await this.game.voiceChat.init();
+        this.game.voiceChat.startCall();
+      }
+    });
   }
 
   joinRoom(roomCode) {
@@ -440,19 +570,22 @@ export class NetworkManager {
     this.roomCode = roomCode;
     console.log('[NETWORK] Joining room:', roomCode);
     
-    // Setup multiplayer mode
+    // NOTE: Don't setup multiplayer mode here - wait for gameReady.
+    // This ensures player can't shoot before opponent joins.
+    // Just ensure remote rules engine exists for when we need it.
+    if (this.game && !this.game.remoteRulesEngine) {
+      this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+    }
+    
+    // Set game state to waiting (player can't shoot until gameReady)
     if (this.game) {
-      this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+      this.game.isMultiplayer = true;  // Mark as multiplayer intent
+      this.game.gameState = 'waiting';
+      this.game.isMyTurn = false;
+      if (this.game.ballInHand) {
+        this.game.ballInHand.disable();
       }
-
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-        this.game.scoreboard.setupBoard('multi');
-      }
-
-      console.log('[NETWORK] Waiting for server to assign player number...');
+      console.log('[NETWORK] Waiting for opponent to join room...');
     }
 
     this.socket.emit('joinRoom', { 
@@ -472,20 +605,16 @@ export class NetworkManager {
     console.log('[NETWORK] Joining public matchmaking...');
     this.game.showNotification('Finding opponent...', 2000);
     
-    // Setup multiplayer mode
-    if (this.game) {
-      this.game.isMultiplayer = true;
-
-      if (!this.game.remoteRulesEngine) {
-        this.game.remoteRulesEngine = new BowlliardsRulesEngine();
-      }
-
-      if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
-        this.game.scoreboard.setupBoard('multi');
-      }
-
-      console.log('[NETWORK] Waiting for matchmaking...');
+    // NOTE: Don't setup multiplayer mode here - wait for server response.
+    // If we get 'waitingForOpponent', we'll start practice mode (single player while waiting).
+    // If we get 'gameReady' immediately (opponent found), we'll setup multiplayer then.
+    
+    // Just ensure remote rules engine exists for when we need it
+    if (this.game && !this.game.remoteRulesEngine) {
+      this.game.remoteRulesEngine = new BowlliardsRulesEngine();
     }
+    
+    console.log('[NETWORK] Waiting for matchmaking response...');
 
     // Emit to server to find/create public room (with player name)
     this.socket.emit('joinPublicMatch', {
@@ -579,9 +708,15 @@ export class NetworkManager {
   sendScoreUpdate(scoresData) {
     if (!this.isConnected || !this.roomCode) return;
     console.log('[NETWORK] Sending score update (inning complete)');
-    this.socket.emit('scoreUpdate', { 
-      roomCode: this.roomCode, 
-      scores: scoresData 
+    this.socket.emit('scoreUpdate', {
+      roomCode: this.roomCode,
+      scores: scoresData
     });
+  }
+
+  sendNewGameRequest() {
+    if (!this.isConnected || !this.roomCode) return;
+    console.log('[NETWORK] Sending new game request');
+    this.socket.emit('newGameRequest', { roomCode: this.roomCode });
   }
 }
