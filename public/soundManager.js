@@ -21,7 +21,12 @@ export class SoundManager {
       pocketSoft: 'ball falling in pocket slowly.mp3',
       pocketHard: 'ball falling into pocket hard shot.mp3',
       hustlerMovie: 'The VR Hustler (Full Movie).mp3',
-      yourTurn: 'It is Your turn.mp3'
+      // Array of files - one will be randomly selected each time
+      yourTurn: [
+        'It is Your turn.mp3',
+        'It is Your turn 2.mp3',
+        'It is Your turn 3.mp3'
+      ]
     };
 
     this.baseVolumes = {
@@ -113,22 +118,31 @@ export class SoundManager {
     // If audio isn't active yet, ignore the request to prevent crashes
     if (!this.isAudioActive) return;
 
-    const file = this.sources[key];
+    let file = this.sources[key];
     if (!file) return;
+
+    // Handle array of files - pick one randomly
+    let cacheKey = key;
+    if (Array.isArray(file)) {
+      const randomIndex = Math.floor(Math.random() * file.length);
+      file = file[randomIndex];
+      cacheKey = `${key}_${randomIndex}`; // Unique cache key for each variation
+      console.log(`[SoundManager] Playing random ${key} variation: ${randomIndex + 1}/${this.sources[key].length}`);
+    }
 
     const base = this.baseVolumes[key] != null ? this.baseVolumes[key] : 1.0;
     const safeIntensity = Number.isFinite(intensity) ? Math.max(0, intensity) : 1.0;
     const volume = base * safeIntensity;
 
-    if (this.soundBuffers[key]) {
-      this._playFromBuffer(key, this.soundBuffers[key], position, volume);
+    if (this.soundBuffers[cacheKey]) {
+      this._playFromBuffer(key, this.soundBuffers[cacheKey], position, volume);
       return;
     }
 
     this.audioLoader.load(
       file,
       (buffer) => {
-        this.soundBuffers[key] = buffer;
+        this.soundBuffers[cacheKey] = buffer;
         this._playFromBuffer(key, buffer, position, volume);
       },
       undefined,

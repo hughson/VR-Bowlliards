@@ -776,7 +776,9 @@ class VRBowlliardsGame {
     }
 
     if (cueBallPocketed) {
-      const foulResult = this.rulesEngine.processFoulAfterBreak();
+      const ballsPocketedOnFoul = pocketedBalls.length;
+      console.log(`[FOUL] Scratch! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
+      const foulResult = this.rulesEngine.processFoulAfterBreak(ballsPocketedOnFoul);
       if (foulResult.gameOver) {
          this.showNotification('Foul, game over!', 2000);
          await this.advanceFrame();
@@ -784,7 +786,10 @@ class VRBowlliardsGame {
          return;
       }
       if (foulResult.inningComplete && !foulResult.isTenthFrame) {
-         this.showNotification('Foul - Frame ended', 2000);
+         const msg = ballsPocketedOnFoul > 0 
+           ? `Scratch! ${ballsPocketedOnFoul} ball(s) counted. Frame ended.`
+           : 'Scratch! Frame ended.';
+         this.showNotification(msg, 2500);
          await this.advanceFrame();
          this.poolTable.resetShotTracking();
          return;
@@ -796,27 +801,41 @@ class VRBowlliardsGame {
       if (!this.isVR && this.desktopControls) {
          this.ballInHand.grab(null);
          this.desktopControls.orbitControls.enabled = false;
-         this.showNotification('Scratch! Move mouse to place ball.', 2000);
+         const msg = ballsPocketedOnFoul > 0 
+           ? `Scratch! ${ballsPocketedOnFoul} ball(s) counted. Place ball.`
+           : 'Scratch! Move mouse to place ball.';
+         this.showNotification(msg, 2500);
       }
       this.poolTable.resetShotTracking();
+      this.updateScoreboard();
       return; 
     }
     
     if (!cueBallHitObject) {
-        this.showNotification('Foul! Play from where it lies.', 2000);
-        const foulResult = this.rulesEngine.processNoHitFoul();
+        const ballsPocketedOnFoul = pocketedBalls.length;
+        console.log(`[FOUL] No hit foul! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
+        const foulResult = this.rulesEngine.processNoHitFoul(ballsPocketedOnFoul);
         if (foulResult.gameOver) {
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
         } else if (foulResult.inningComplete && !foulResult.isTenthFrame) {
              if (foulResult.isStrike) this.showNotification('Strike!', 2000);
-             else this.showNotification('Open frame', 2000);
+             else {
+               const msg = ballsPocketedOnFoul > 0
+                 ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Open frame.`
+                 : 'Open frame';
+               this.showNotification(msg, 2500);
+             }
              await this.advanceFrame();
         } else {
-             this.showNotification('Foul. Second inning!', 2000);
+             const msg = ballsPocketedOnFoul > 0
+               ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Second inning!`
+               : 'Foul. Second inning!';
+             this.showNotification(msg, 2500);
              this.gameState = 'ready';
         }
         this.poolTable.resetShotTracking();
+        this.updateScoreboard();
         return;
     }
 
@@ -995,7 +1014,7 @@ class VRBowlliardsGame {
     if (this.rulesEngine.isGameComplete()) {
       const finalScore = this.rulesEngine.getTotalScore();
       this.gameState = 'gameOver';
-      this.showNotification(`Game Over! Score: ${finalScore}. Press RESET button.`, 10000);
+      this.showNotification(`Game Over! Score: ${finalScore}. Press R or click New Game to play again.`, 10000);
       
       // Celebrate game over with floating text
       if (this.celebrationSystem) {
@@ -1110,21 +1129,21 @@ class VRBowlliardsGame {
       const oppScore = this.remoteRulesEngine.getTotalScore();
       let gameResult = null;
       if (myScore > oppScore) {
-        this.showNotification(`YOU WIN! ${myScore} vs ${oppScore}`, 5000);
+        this.showNotification(`YOU WIN! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'win';
         // Celebrate win with floating text and confetti
         if (this.celebrationSystem) {
           this.celebrationSystem.celebrateWin();
         }
       } else if (oppScore > myScore) {
-        this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore}`, 5000);
+        this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'loss';
         // Show loss floating text
         if (this.celebrationSystem) {
           this.celebrationSystem.celebrateLoss();
         }
       } else {
-        this.showNotification(`TIE GAME! ${myScore} vs ${oppScore}`, 5000);
+        this.showNotification(`TIE GAME! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'tie';
         // Show tie floating text
         if (this.celebrationSystem) {
@@ -1132,6 +1151,7 @@ class VRBowlliardsGame {
         }
       }
       this.gameState = 'gameOver';
+      console.log('[GAME] ===== GAME OVER ===== Both players finished. Click New Game to play again.');
       
       // Save multiplayer game to stats tracker if logged in (with game result)
       this.saveMultiplayerGame(myScore, gameResult);
@@ -1176,6 +1196,54 @@ class VRBowlliardsGame {
     const playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
     if (this.personalStatsDisplay) {
       this.personalStatsDisplay.update(stats, playerName);
+    }
+  }
+
+  resetMultiplayerGame() {
+    console.log('[GAME] Resetting multiplayer game');
+
+    // Reset both local and remote rules engines
+    this.rulesEngine = new BowlliardsRulesEngine();
+    this.remoteRulesEngine = new BowlliardsRulesEngine();
+
+    // Reset table and ball state
+    this.poolTable.setupBalls();
+    this.poolTable.resetShotTracking();
+
+    // Reset game state variables
+    this.breakShotTaken = false;
+    this.currentInning = 1;
+    this.frameJustStarted = true;
+    this.ballsSettled = true;
+    this.isMyTurn = (this.myPlayerNumber === 1); // Player 1 starts
+    this.gameState = this.isMyTurn ? 'ready' : 'waiting';
+
+    // Enable ball in hand for player 1
+    if (this.isMyTurn) {
+      this.ballInHand.enable(true);
+      this.showNotification('New game! Your turn to break.', 2500);
+    } else {
+      this.ballInHand.disable();
+      this.showNotification('New game! Waiting for opponent to break.', 2500);
+    }
+
+    // Reset scoreboard
+    this.scoreboard.setupBoard('multi');
+    this.scoreboard.drawEmptyScore();
+    this.updateScoreboard();
+
+    // Update cue controller
+    if (this.cueController) {
+      this.cueController.update(this.isMyTurn);
+    }
+  }
+
+  onOpponentNewGameRequest() {
+    console.log('[GAME] Opponent requested new game');
+    if (this.gameState === 'gameOver') {
+      this.resetMultiplayerGame();
+    } else {
+      console.log('[GAME] Ignoring new game request - game not over yet');
     }
   }
 
@@ -1231,13 +1299,24 @@ class VRBowlliardsGame {
   }
 
   startNewGame() {
-    // Block reset in multiplayer mode
-    if (this.isMultiplayer) {
-      this.showNotification('Reset disabled in multiplayer mode', 2500);
+    // Block reset in multiplayer mode unless game is over
+    if (this.isMultiplayer && this.gameState !== 'gameOver') {
+      this.showNotification('Reset disabled - game in progress', 2500);
       console.log('[GAME] Reset blocked - multiplayer game in progress');
       return;
     }
-    
+
+    // If multiplayer and game is over, send new game request to opponent
+    if (this.isMultiplayer && this.gameState === 'gameOver') {
+      console.log('[GAME] Requesting new multiplayer game');
+      this.showNotification('Starting new game...', 2000);
+      if (this.networkManager) {
+        this.networkManager.sendNewGameRequest();
+      }
+      this.resetMultiplayerGame();
+      return;
+    }
+
     this.rulesEngine = new BowlliardsRulesEngine();
     this.poolTable.setupBalls();  // Reset balls on table
     this.poolTable.resetShotTracking();  // Clear any previous shot state
@@ -1247,13 +1326,13 @@ class VRBowlliardsGame {
     this.ballsSettled = true;
     this.gameState = 'ready';
     this.ballInHand.enable(true);
-    
+
     // Properly redraw scoreboard
     this.scoreboard.setupBoard('single');
     this.scoreboard.drawEmptyScore();
     this.updateScoreboard();
     this.leaderboardDisplay.update(this.leaderboard);
-    
+
     // Update cue controller
     if (this.cueController) {
       this.cueController.update(true);

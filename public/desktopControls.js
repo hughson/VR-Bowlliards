@@ -157,6 +157,12 @@ export class DesktopControls {
             }
         }
         break;
+
+      case 'KeyR':
+        // Reset/New Game shortcut
+        console.log('[DESKTOP] R key pressed - attempting to start new game');
+        this.game.startNewGame();
+        break;
     }
   }
 

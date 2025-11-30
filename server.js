@@ -779,6 +779,11 @@ io.on('connection', (socket) => {
     console.log(`*** SCORE UPDATE in Room ${data.roomCode} ***`);
     socket.to(data.roomCode).emit('opponentScoreUpdate', data.scores);
   });
+
+  socket.on('newGameRequest', (data) => {
+    console.log(`*** NEW GAME REQUEST in Room ${data.roomCode} ***`);
+    socket.to(data.roomCode).emit('opponentNewGameRequest');
+  });
   // ---------------------------------------------
 
   socket.on('disconnect', () => {

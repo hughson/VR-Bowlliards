@@ -158,8 +158,80 @@ export class PlayerMenu {
     // Render player list
     this.renderPlayerList(ctx, w, 270);
     
+    // Render New Game button (at bottom of menu)
+    this.renderNewGameButton(ctx, w, h - 80);
+    
     // Update texture
     this.canvasTexture.needsUpdate = true;
+  }
+  
+  renderNewGameButton(ctx, w, y) {
+    // Only show when game is over OR in single player
+    const gameOver = this.game.gameState === 'gameOver';
+    const isMultiplayer = this.game.isMultiplayer;
+    
+    // Button dimensions
+    const btnW = 200;
+    const btnH = 50;
+    const btnX = (w - btnW) / 2;
+    const btnY = y;
+    
+    // Track button for hit testing
+    this.buttons.push({ x: btnX, y: btnY, w: btnW, h: btnH, id: 'newGame', type: 'action' });
+    
+    const isHovered = this.hoveredButton === 'newGame';
+    
+    // Determine if button is clickable
+    const isClickable = !isMultiplayer || gameOver;
+    
+    // Button background
+    const btnGradient = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    if (!isClickable) {
+      // Greyed out for in-progress multiplayer
+      btnGradient.addColorStop(0, 'rgba(60, 60, 60, 0.7)');
+      btnGradient.addColorStop(1, 'rgba(40, 40, 40, 0.7)');
+    } else if (gameOver) {
+      // Bright green for game over state
+      btnGradient.addColorStop(0, isHovered ? 'rgba(0, 220, 100, 0.95)' : 'rgba(0, 180, 80, 0.9)');
+      btnGradient.addColorStop(1, isHovered ? 'rgba(0, 180, 80, 0.95)' : 'rgba(0, 140, 60, 0.9)');
+    } else {
+      // Orange for single player
+      btnGradient.addColorStop(0, isHovered ? 'rgba(255, 180, 0, 0.95)' : 'rgba(220, 150, 0, 0.9)');
+      btnGradient.addColorStop(1, isHovered ? 'rgba(220, 150, 0, 0.95)' : 'rgba(180, 120, 0, 0.9)');
+    }
+    
+    this.roundRect(ctx, btnX, btnY, btnW, btnH, 10);
+    ctx.fillStyle = btnGradient;
+    ctx.fill();
+    
+    // Button border
+    ctx.strokeStyle = isClickable ? (gameOver ? '#00ff88' : '#ffaa00') : '#555555';
+    ctx.lineWidth = isHovered ? 3 : 2;
+    ctx.stroke();
+    
+    // Glow effect when hoverable
+    if (isClickable && isHovered) {
+      ctx.shadowColor = gameOver ? '#00ff88' : '#ffaa00';
+      ctx.shadowBlur = 15;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    
+    // Button text
+    ctx.fillStyle = isClickable ? '#ffffff' : '#888888';
+    ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    let buttonText = '🎱 New Game';
+    if (isMultiplayer && !gameOver) {
+      buttonText = '🔒 Game in Progress';
+    } else if (gameOver) {
+      buttonText = '🎱 Play Again!';
+    }
+    
+    ctx.fillText(buttonText, btnX + btnW / 2, btnY + btnH / 2);
+    ctx.textBaseline = 'alphabetic';
   }
   
   renderHeader(ctx, w) {
@@ -752,6 +824,17 @@ export class PlayerMenu {
       this.setPlayerMuted('local', !this.localPlayerMuted);
     } else if (btn.id === 'voiceConnect') {
       this.connectVoice();
+    } else if (btn.id === 'newGame') {
+      // New Game button - only works if game is over in multiplayer or anytime in single player
+      const isClickable = !this.game.isMultiplayer || this.game.gameState === 'gameOver';
+      if (isClickable) {
+        console.log('[MENU] New Game button clicked');
+        this.game.startNewGame();
+        this.close(); // Close the menu after starting new game
+      } else {
+        console.log('[MENU] New Game blocked - multiplayer game in progress');
+        this.game.showNotification('Game in progress - cannot reset', 2000);
+      }
     } else if (btn.id.startsWith('mute_')) {
       const playerId = btn.id.replace('mute_', '');
       const state = this.players.get(playerId) || { isMuted: false, isHidden: false };
