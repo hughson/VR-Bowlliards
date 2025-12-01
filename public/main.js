@@ -67,6 +67,10 @@ class VRBowlliardsGame {
     this.isAuthority = true;
     this.gameStarted = false;  // True only when both players are connected
     
+    // New game request tracking
+    this.newGameRequestPending = false;   // True if we've requested new game
+    this.opponentWantsNewGame = false;    // True if opponent requested new game
+    
     // Practice while waiting mode
     this.isPracticeWhileWaiting = false;  // True when playing solo while in matchmaking queue
     this.practiceRulesEngine = null;      // Separate rules engine for practice (don't pollute main one)
@@ -1019,11 +1023,21 @@ class VRBowlliardsGame {
         
         this.gameState = 'ready';
       } else {
-        // Check if this was a 10th frame open that ends the game
-        if (result.gameOver && result.isTenthFrame) {
-          this.showNotification(`10th Frame Complete: ${result.totalScored} total`, 2000);
-          await this.advanceFrame(); // Will handle game completion
+        // Second inning complete
+        if (result.isTenthFrame) {
+          // In 10th frame, only advance if game is actually over
+          if (result.gameOver) {
+            this.showNotification(`10th Frame Complete: ${result.totalScored} total`, 2000);
+            await this.advanceFrame(); // Will handle game completion
+          } else {
+            // 10th frame but game not over - shouldn't happen for open frames
+            // but might happen if there's a logic issue
+            console.log('[GAME] 10th frame second inning complete but game not over?', result);
+            this.showNotification(`Inning complete: ${result.totalScored} total`, 2000);
+            this.gameState = 'ready';
+          }
         } else {
+          // Regular frames 1-9
           this.showNotification(`Open frame: ${result.totalScored} total`, 2000);
           await this.advanceFrame();
         }
@@ -1055,6 +1069,13 @@ class VRBowlliardsGame {
         currentFrame: this.rulesEngine.currentFrame,
         currentFrameScores: this.rulesEngine.frames[this.rulesEngine.currentFrame]
       });
+      
+      // SAFEGUARD: In 10th frame, only allow advance if game is actually complete
+      if (this.rulesEngine.currentFrame === 9 && !this.rulesEngine.isGameComplete()) {
+        console.log("[GAME] BLOCKED - In 10th frame but game not complete. Not switching turns.");
+        this.gameState = 'ready';
+        return;
+      }
       
       // CRITICAL FIX: Check if game is complete BEFORE switching turns
       if (this.rulesEngine.isGameComplete()) {
@@ -1165,6 +1186,15 @@ class VRBowlliardsGame {
     if (this.gameState === 'gameOver') {
       console.log("[GAME] Ignoring opponent frame complete - game is over");
       this.checkGameComplete(); // Still check if both players finished
+      return;
+    }
+    
+    // Don't process if it's already my turn and I'm in the middle of playing
+    // This can happen if messages arrive out of order or if opponent finishes while I'm shooting
+    if (this.isMyTurn && this.gameState !== 'waiting') {
+      console.log("[GAME] Ignoring opponent frame complete - already my turn and actively playing");
+      this.checkGameComplete();
+      this.updateScoreboard();
       return;
     }
     
@@ -1300,6 +1330,10 @@ class VRBowlliardsGame {
   resetMultiplayerGame() {
     console.log('[GAME] Resetting multiplayer game');
 
+    // Reset new game request tracking
+    this.newGameRequestPending = false;
+    this.opponentWantsNewGame = false;
+
     // Reset both local and remote rules engines
     this.rulesEngine = new BowlliardsRulesEngine();
     this.remoteRulesEngine = new BowlliardsRulesEngine();
@@ -1338,10 +1372,55 @@ class VRBowlliardsGame {
 
   onOpponentNewGameRequest() {
     console.log('[GAME] Opponent requested new game');
+    this.opponentWantsNewGame = true;
+    
+    // Update the player menu to show opponent wants new game
+    if (this.playerMenu) {
+      this.playerMenu.render();
+    }
+    
     if (this.gameState === 'gameOver') {
-      this.resetMultiplayerGame();
+      this.showNotification('Opponent wants to play again! Click "New Game" to accept.', 5000);
     } else {
       console.log('[GAME] Ignoring new game request - game not over yet');
+    }
+  }
+  
+  onNewGameConfirmed() {
+    console.log('[GAME] ===== NEW GAME CONFIRMED BY BOTH PLAYERS =====');
+    
+    // Reset request tracking
+    this.newGameRequestPending = false;
+    this.opponentWantsNewGame = false;
+    
+    // Actually reset the game
+    this.resetMultiplayerGame();
+    
+    // Update player menu
+    if (this.playerMenu) {
+      this.playerMenu.render();
+    }
+  }
+  
+  onNewGameRequestSent() {
+    console.log('[GAME] New game request sent, waiting for opponent...');
+    this.newGameRequestPending = true;
+    this.showNotification('Waiting for opponent to accept new game...', 3000);
+    
+    // Update player menu to show waiting state
+    if (this.playerMenu) {
+      this.playerMenu.render();
+    }
+  }
+  
+  onOpponentCanceledNewGame() {
+    console.log('[GAME] Opponent canceled their new game request');
+    this.opponentWantsNewGame = false;
+    this.showNotification('Opponent canceled new game request', 2000);
+    
+    // Update player menu
+    if (this.playerMenu) {
+      this.playerMenu.render();
     }
   }
 
@@ -1406,15 +1485,25 @@ class VRBowlliardsGame {
 
     // If multiplayer and game is over, send new game request to opponent
     if (this.isMultiplayer && this.gameState === 'gameOver') {
+      // If we already sent a request, show waiting message
+      if (this.newGameRequestPending) {
+        this.showNotification('Already waiting for opponent...', 2000);
+        return;
+      }
+      
       console.log('[GAME] Requesting new multiplayer game');
-      this.showNotification('Starting new game...', 2000);
+      
+      // Send request to server
       if (this.networkManager) {
         this.networkManager.sendNewGameRequest();
       }
-      this.resetMultiplayerGame();
+      
+      // If opponent already requested, the server will immediately confirm
+      // Otherwise we wait for opponent
       return;
     }
 
+    // Single player - immediately start new game
     this.rulesEngine = new BowlliardsRulesEngine();
     this.poolTable.setupBalls();  // Reset balls on table
     this.poolTable.resetShotTracking();  // Clear any previous shot state

@@ -310,7 +310,6 @@ export class BowlliardsRulesEngine {
       const frame10 = this.frames[9];
       const currentBonusIndex = frame10.isStrike ? (2 - this.bonusRolls) : 0;
 
-      // Foul ends this bonus inning - ACCUMULATE balls pocketed on foul
       frame10.bonus[currentBonusIndex] = (frame10.bonus[currentBonusIndex] || 0) + ballsPocketedOnFoul;
       
       this.bonusRolls--;
@@ -333,16 +332,17 @@ export class BowlliardsRulesEngine {
 
     const frame = this.frames[this.currentFrame];
 
-    // Special logic for 10th frame foul
+    // 10th frame foul
     if (this.currentFrame === 9) {
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul
-        frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
-        frame.inning1.complete = true;
+        const prevScore = frame.inning1.scored || 0;
+        frame.inning1.scored = prevScore + ballsPocketedOnFoul;
         
-        // Check for STRIKE (10 balls in first inning, even on a scratch)
-        if (frame.inning1.scored >= 10) {
+        // STRIKE only if we potted balls on THIS shot AND reached 10
+        // (Must pot the 10th ball to get strike, even on a scratch)
+        if (frame.inning1.scored >= 10 && ballsPocketedOnFoul > 0 && prevScore < 10) {
           frame.isStrike = true;
+          frame.inning1.complete = true;
           this.bonusRolls = 2;
           this.currentInning = 2;
           this.breakProcessed = true;
@@ -355,19 +355,22 @@ export class BowlliardsRulesEngine {
           };
         }
         
+        frame.inning1.complete = true;
         this.currentInning = 2;
         this.calculateScores();
-        return { grantBallInHand: true, inningComplete: false };
+        return { grantBallInHand: true, inningComplete: false, isTenthFrame: true };
       } else {
+        const prevScore1 = frame.inning1.scored || 0;
+        const prevScore2 = frame.inning2.scored || 0;
         frame.inning1.complete = true;
-        // ACCUMULATE balls pocketed on foul
-        frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
-        frame.inning2.complete = true;
+        frame.inning2.scored = prevScore2 + ballsPocketedOnFoul;
         
-        // Check for SPARE (inning1 + inning2 = 10)
-        const totalScored = frame.inning1.scored + frame.inning2.scored;
-        if (totalScored >= 10) {
+        // SPARE only if we potted balls on THIS shot AND total reached 10
+        const totalScored = prevScore1 + frame.inning2.scored;
+        const prevTotal = prevScore1 + prevScore2;
+        if (totalScored >= 10 && ballsPocketedOnFoul > 0 && prevTotal < 10) {
           frame.isSpare = true;
+          frame.inning2.complete = true;
           this.bonusRolls = 1;
           this.breakProcessed = true;
           this.calculateScores();
@@ -379,21 +382,22 @@ export class BowlliardsRulesEngine {
           };
         }
         
+        frame.inning2.complete = true;
         frame.isOpen = true;
         this.calculateScores();
-        return { grantBallInHand: false, inningComplete: true };
+        return { grantBallInHand: false, inningComplete: true, isTenthFrame: true };
       }
     }
 
     // Frames 1–9
     if (this.currentInning === 1) {
-      // ACCUMULATE balls pocketed on foul
-      frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
-      frame.inning1.complete = true;
+      const prevScore = frame.inning1.scored || 0;
+      frame.inning1.scored = prevScore + ballsPocketedOnFoul;
       
-      // Check for STRIKE (10 balls in first inning, even on a scratch)
-      if (frame.inning1.scored >= 10) {
+      // STRIKE only if we potted balls on THIS shot AND reached 10
+      if (frame.inning1.scored >= 10 && ballsPocketedOnFoul > 0 && prevScore < 10) {
         frame.isStrike = true;
+        frame.inning1.complete = true;
         this.calculateScores();
         return { 
           grantBallInHand: false, 
@@ -402,18 +406,21 @@ export class BowlliardsRulesEngine {
         };
       }
       
+      frame.inning1.complete = true;
       this.currentInning = 2;
       this.calculateScores();
       return { grantBallInHand: true, inningComplete: false };
     } else {
-      // ACCUMULATE balls pocketed on foul
-      frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
-      frame.inning2.complete = true;
+      const prevScore1 = frame.inning1.scored || 0;
+      const prevScore2 = frame.inning2.scored || 0;
+      frame.inning2.scored = prevScore2 + ballsPocketedOnFoul;
       
-      // Check for SPARE (inning1 + inning2 = 10)
-      const totalScored = frame.inning1.scored + frame.inning2.scored;
-      if (totalScored >= 10) {
+      // SPARE only if we potted balls on THIS shot AND total reached 10
+      const totalScored = prevScore1 + frame.inning2.scored;
+      const prevTotal = prevScore1 + prevScore2;
+      if (totalScored >= 10 && ballsPocketedOnFoul > 0 && prevTotal < 10) {
         frame.isSpare = true;
+        frame.inning2.complete = true;
         this.calculateScores();
         return { 
           grantBallInHand: false, 
@@ -422,6 +429,7 @@ export class BowlliardsRulesEngine {
         };
       }
       
+      frame.inning2.complete = true;
       frame.isOpen = true;
       this.calculateScores();
       return { grantBallInHand: false, inningComplete: true };
@@ -460,12 +468,12 @@ export class BowlliardsRulesEngine {
     if (this.currentFrame === 9) {
       // 10th frame
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul
-        frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
+        const prevScore = frame.inning1.scored || 0;
+        frame.inning1.scored = prevScore + ballsPocketedOnFoul;
         frame.inning1.complete = true;
         
-        // Check for STRIKE (10 balls in first inning)
-        if (frame.inning1.scored >= 10) {
+        // STRIKE only if we potted balls on THIS shot AND reached 10
+        if (frame.inning1.scored >= 10 && ballsPocketedOnFoul > 0 && prevScore < 10) {
           frame.isStrike = true;
           this.bonusRolls = 2;
           this.currentInning = 2;
@@ -482,14 +490,16 @@ export class BowlliardsRulesEngine {
         
         this.currentInning = 2;
       } else {
+        const prevScore1 = frame.inning1.scored || 0;
+        const prevScore2 = frame.inning2.scored || 0;
         frame.inning1.complete = true;
-        // ACCUMULATE balls pocketed on foul
-        frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
+        frame.inning2.scored = prevScore2 + ballsPocketedOnFoul;
         frame.inning2.complete = true;
         
-        // Check for SPARE (inning1 + inning2 = 10)
-        const totalScored = frame.inning1.scored + frame.inning2.scored;
-        if (totalScored >= 10) {
+        // SPARE only if we potted balls on THIS shot AND total reached 10
+        const totalScored = prevScore1 + frame.inning2.scored;
+        const prevTotal = prevScore1 + prevScore2;
+        if (totalScored >= 10 && ballsPocketedOnFoul > 0 && prevTotal < 10) {
           frame.isSpare = true;
           this.bonusRolls = 1;
           this.breakProcessed = true;
@@ -508,12 +518,12 @@ export class BowlliardsRulesEngine {
     } else {
       // Frames 1–9
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul
-        frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
+        const prevScore = frame.inning1.scored || 0;
+        frame.inning1.scored = prevScore + ballsPocketedOnFoul;
         frame.inning1.complete = true;
         
-        // Check for STRIKE (10 balls in first inning)
-        if (frame.inning1.scored >= 10) {
+        // STRIKE only if we potted balls on THIS shot AND reached 10
+        if (frame.inning1.scored >= 10 && ballsPocketedOnFoul > 0 && prevScore < 10) {
           frame.isStrike = true;
           this.calculateScores();
           return { 
@@ -527,13 +537,15 @@ export class BowlliardsRulesEngine {
         
         this.currentInning = 2;
       } else {
-        // ACCUMULATE balls pocketed on foul
-        frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
+        const prevScore1 = frame.inning1.scored || 0;
+        const prevScore2 = frame.inning2.scored || 0;
+        frame.inning2.scored = prevScore2 + ballsPocketedOnFoul;
         frame.inning2.complete = true;
         
-        // Check for SPARE (inning1 + inning2 = 10)
-        const totalScored = frame.inning1.scored + frame.inning2.scored;
-        if (totalScored >= 10) {
+        // SPARE only if we potted balls on THIS shot AND total reached 10
+        const totalScored = prevScore1 + frame.inning2.scored;
+        const prevTotal = prevScore1 + prevScore2;
+        if (totalScored >= 10 && ballsPocketedOnFoul > 0 && prevTotal < 10) {
           frame.isSpare = true;
           this.calculateScores();
           return { 

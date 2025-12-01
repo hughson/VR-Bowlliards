@@ -38,6 +38,8 @@ export class PlayerMenu {
     
     // Track game state for re-rendering when it changes
     this.lastKnownGameState = null;
+    this.lastNewGameRequestPending = false;
+    this.lastOpponentWantsNewGame = false;
     
     this.init();
   }
@@ -169,12 +171,14 @@ export class PlayerMenu {
   }
   
   renderNewGameButton(ctx, w, y) {
-    // Only show when game is over OR in single player
+    // Game state checks
     const gameOver = this.game.gameState === 'gameOver';
     const isMultiplayer = this.game.isMultiplayer;
+    const newGameRequestPending = this.game.newGameRequestPending || false;
+    const opponentWantsNewGame = this.game.opponentWantsNewGame || false;
     
     // Button dimensions
-    const btnW = 200;
+    const btnW = 220;
     const btnH = 50;
     const btnX = (w - btnW) / 2;
     const btnY = y;
@@ -184,37 +188,65 @@ export class PlayerMenu {
     
     const isHovered = this.hoveredButton === 'newGame';
     
-    // Determine if button is clickable
-    const isClickable = !isMultiplayer || gameOver;
+    // Determine button state and if clickable
+    let isClickable = false;
+    let buttonText = '🎱 New Game';
+    let bgColor1, bgColor2, borderColor;
+    
+    if (!isMultiplayer) {
+      // Single player - always clickable
+      isClickable = true;
+      buttonText = gameOver ? '🎱 Play Again!' : '🎱 New Game';
+      bgColor1 = isHovered ? 'rgba(255, 180, 0, 0.95)' : 'rgba(220, 150, 0, 0.9)';
+      bgColor2 = isHovered ? 'rgba(220, 150, 0, 0.95)' : 'rgba(180, 120, 0, 0.9)';
+      borderColor = '#ffaa00';
+    } else if (!gameOver) {
+      // Multiplayer game in progress - greyed out
+      isClickable = false;
+      buttonText = '🔒 Game in Progress';
+      bgColor1 = 'rgba(60, 60, 60, 0.7)';
+      bgColor2 = 'rgba(40, 40, 40, 0.7)';
+      borderColor = '#555555';
+    } else if (newGameRequestPending) {
+      // We've sent request, waiting for opponent
+      isClickable = false;
+      buttonText = '⏳ Waiting...';
+      bgColor1 = 'rgba(100, 100, 0, 0.7)';
+      bgColor2 = 'rgba(80, 80, 0, 0.7)';
+      borderColor = '#aaaa00';
+    } else if (opponentWantsNewGame) {
+      // Opponent wants new game, we can accept
+      isClickable = true;
+      buttonText = '✅ Accept New Game';
+      bgColor1 = isHovered ? 'rgba(0, 255, 100, 0.95)' : 'rgba(0, 200, 80, 0.9)';
+      bgColor2 = isHovered ? 'rgba(0, 200, 80, 0.95)' : 'rgba(0, 160, 60, 0.9)';
+      borderColor = '#00ff88';
+    } else {
+      // Game over, no requests - can request new game
+      isClickable = true;
+      buttonText = '🎱 Play Again!';
+      bgColor1 = isHovered ? 'rgba(0, 220, 100, 0.95)' : 'rgba(0, 180, 80, 0.9)';
+      bgColor2 = isHovered ? 'rgba(0, 180, 80, 0.95)' : 'rgba(0, 140, 60, 0.9)';
+      borderColor = '#00ff88';
+    }
     
     // Button background
     const btnGradient = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-    if (!isClickable) {
-      // Greyed out for in-progress multiplayer
-      btnGradient.addColorStop(0, 'rgba(60, 60, 60, 0.7)');
-      btnGradient.addColorStop(1, 'rgba(40, 40, 40, 0.7)');
-    } else if (gameOver) {
-      // Bright green for game over state
-      btnGradient.addColorStop(0, isHovered ? 'rgba(0, 220, 100, 0.95)' : 'rgba(0, 180, 80, 0.9)');
-      btnGradient.addColorStop(1, isHovered ? 'rgba(0, 180, 80, 0.95)' : 'rgba(0, 140, 60, 0.9)');
-    } else {
-      // Orange for single player
-      btnGradient.addColorStop(0, isHovered ? 'rgba(255, 180, 0, 0.95)' : 'rgba(220, 150, 0, 0.9)');
-      btnGradient.addColorStop(1, isHovered ? 'rgba(220, 150, 0, 0.95)' : 'rgba(180, 120, 0, 0.9)');
-    }
+    btnGradient.addColorStop(0, bgColor1);
+    btnGradient.addColorStop(1, bgColor2);
     
     this.roundRect(ctx, btnX, btnY, btnW, btnH, 10);
     ctx.fillStyle = btnGradient;
     ctx.fill();
     
     // Button border
-    ctx.strokeStyle = isClickable ? (gameOver ? '#00ff88' : '#ffaa00') : '#555555';
-    ctx.lineWidth = isHovered ? 3 : 2;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = isHovered && isClickable ? 3 : 2;
     ctx.stroke();
     
     // Glow effect when hoverable
     if (isClickable && isHovered) {
-      ctx.shadowColor = gameOver ? '#00ff88' : '#ffaa00';
+      ctx.shadowColor = borderColor;
       ctx.shadowBlur = 15;
       ctx.stroke();
       ctx.shadowBlur = 0;
@@ -222,17 +254,9 @@ export class PlayerMenu {
     
     // Button text
     ctx.fillStyle = isClickable ? '#ffffff' : '#888888';
-    ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    
-    let buttonText = '🎱 New Game';
-    if (isMultiplayer && !gameOver) {
-      buttonText = '🔒 Game in Progress';
-    } else if (gameOver) {
-      buttonText = '🎱 Play Again!';
-    }
-    
     ctx.fillText(buttonText, btnX + btnW / 2, btnY + btnH / 2);
     ctx.textBaseline = 'alphabetic';
   }
@@ -729,9 +753,16 @@ export class PlayerMenu {
     if (this.isOpen) {
       this.checkInteraction();
       
-      // Re-render if game state changed (e.g., game ended)
-      if (this.game.gameState !== this.lastKnownGameState) {
+      // Re-render if game state changed (e.g., game ended, new game requests)
+      const currentNewGamePending = this.game.newGameRequestPending || false;
+      const currentOpponentWants = this.game.opponentWantsNewGame || false;
+      
+      if (this.game.gameState !== this.lastKnownGameState ||
+          currentNewGamePending !== this.lastNewGameRequestPending ||
+          currentOpponentWants !== this.lastOpponentWantsNewGame) {
         this.lastKnownGameState = this.game.gameState;
+        this.lastNewGameRequestPending = currentNewGamePending;
+        this.lastOpponentWantsNewGame = currentOpponentWants;
         this.render();
       }
     }
@@ -835,12 +866,29 @@ export class PlayerMenu {
     } else if (btn.id === 'voiceConnect') {
       this.connectVoice();
     } else if (btn.id === 'newGame') {
-      // New Game button - only works if game is over in multiplayer or anytime in single player
-      const isClickable = !this.game.isMultiplayer || this.game.gameState === 'gameOver';
+      // New Game button logic
+      const isMultiplayer = this.game.isMultiplayer;
+      const gameOver = this.game.gameState === 'gameOver';
+      const newGameRequestPending = this.game.newGameRequestPending || false;
+      
+      // Determine if clickable
+      let isClickable = false;
+      if (!isMultiplayer) {
+        isClickable = true;
+      } else if (gameOver && !newGameRequestPending) {
+        isClickable = true;
+      }
+      
       if (isClickable) {
         console.log('[MENU] New Game button clicked');
         this.game.startNewGame();
-        this.close(); // Close the menu after starting new game
+        // Don't close menu immediately in multiplayer - show waiting state
+        if (!isMultiplayer) {
+          this.close();
+        }
+      } else if (newGameRequestPending) {
+        console.log('[MENU] Already waiting for opponent');
+        this.game.showNotification('Already waiting for opponent...', 2000);
       } else {
         console.log('[MENU] New Game blocked - multiplayer game in progress');
         this.game.showNotification('Game in progress - cannot reset', 2000);

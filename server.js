@@ -544,7 +544,7 @@ const io = new Server(server, {
 });
 
 // Track rooms and player assignments
-const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2, player1Name: string, player2Name: string }
+const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2, player1Name: string, player2Name: string, newGameRequests: Set }
 
 // Track available public rooms for matchmaking
 const publicRooms = new Map(); // roomCode -> { player1: socketId, createdAt: timestamp }
@@ -593,7 +593,7 @@ io.on('connection', (socket) => {
       });
       
       // Initialize room
-      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null });
+      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
       
       socket.emit('joinRoom', newRoomCode); // Trigger normal join flow
       handleJoinRoom(socket, newRoomCode, playerName);
@@ -635,7 +635,7 @@ io.on('connection', (socket) => {
     
     // Get or create room data
     if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null });
+      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
     }
     
     const room = rooms.get(roomCode);
@@ -781,8 +781,59 @@ io.on('connection', (socket) => {
   });
 
   socket.on('newGameRequest', (data) => {
-    console.log(`*** NEW GAME REQUEST in Room ${data.roomCode} ***`);
-    socket.to(data.roomCode).emit('opponentNewGameRequest');
+    console.log(`*** NEW GAME REQUEST in Room ${data.roomCode} from ${socket.id} ***`);
+    
+    const room = rooms.get(data.roomCode);
+    if (!room) {
+      console.log(`ERROR: Room ${data.roomCode} not found!`);
+      return;
+    }
+    
+    // Add this player to the new game requests set
+    room.newGameRequests.add(socket.id);
+    
+    console.log(`[NEW GAME] Requests so far: ${room.newGameRequests.size}/2`);
+    
+    // Check if both players have requested new game
+    if (room.newGameRequests.size >= 2 && room.player1 && room.player2) {
+      console.log(`[NEW GAME] Both players agreed! Starting new game in room ${data.roomCode}`);
+      
+      // Clear the requests for next game
+      room.newGameRequests.clear();
+      
+      // Reset turn to player 1
+      room.currentTurn = 1;
+      
+      // Notify both players to start new game
+      io.to(data.roomCode).emit('newGameConfirmed', {
+        roomCode: data.roomCode
+      });
+      
+      // Also send turn change
+      io.to(data.roomCode).emit('turnChanged', { 
+        currentPlayer: 1,
+        roomCode: data.roomCode 
+      });
+    } else {
+      // Notify the opponent that this player wants a new game
+      socket.to(data.roomCode).emit('opponentNewGameRequest');
+      
+      // Confirm to sender that their request was received
+      socket.emit('newGameRequestSent');
+    }
+  });
+  
+  // Cancel new game request
+  socket.on('cancelNewGameRequest', (data) => {
+    console.log(`*** CANCEL NEW GAME REQUEST in Room ${data.roomCode} from ${socket.id} ***`);
+    
+    const room = rooms.get(data.roomCode);
+    if (!room) return;
+    
+    room.newGameRequests.delete(socket.id);
+    
+    // Notify opponent that this player canceled their request
+    socket.to(data.roomCode).emit('opponentCanceledNewGame');
   });
   // ---------------------------------------------
 

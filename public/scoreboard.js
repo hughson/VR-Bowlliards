@@ -256,6 +256,7 @@ export class Scoreboard {
       for (let f = 0; f < frameCount; f++) {
         const x = startX + f * boxWidth;
         const y = yBoxes;
+        const isTenthFrame = (f === 9);
 
         ctx.strokeStyle = '#00ff88';
         ctx.lineWidth = 2;
@@ -284,33 +285,84 @@ export class Scoreboard {
         ctx.lineTo(x + (boxWidth - 4), y + smallBoxHeight);
         ctx.stroke();
 
-        // Draw vertical line dividing the two small boxes
-        ctx.beginPath();
-        ctx.moveTo(x + (boxWidth - 4) / 2, y);
-        ctx.lineTo(x + (boxWidth - 4) / 2, y + smallBoxHeight);
-        ctx.stroke();
+        // Draw vertical lines dividing the small boxes
+        if (isTenthFrame) {
+          // 10th frame: 3 boxes for inning1, inning2/spare, and bonus
+          const thirdWidth = (boxWidth - 4) / 3;
+          ctx.beginPath();
+          ctx.moveTo(x + thirdWidth, y);
+          ctx.lineTo(x + thirdWidth, y + smallBoxHeight);
+          ctx.moveTo(x + thirdWidth * 2, y);
+          ctx.lineTo(x + thirdWidth * 2, y + smallBoxHeight);
+          ctx.stroke();
+        } else {
+          // Regular frame: 2 boxes
+          ctx.beginPath();
+          ctx.moveTo(x + (boxWidth - 4) / 2, y);
+          ctx.lineTo(x + (boxWidth - 4) / 2, y + smallBoxHeight);
+          ctx.stroke();
+        }
 
         // --- INNING SCORES (Small boxes on top) ---
         ctx.fillStyle = '#ffffff';
         ctx.font = '12px Arial';
         
-        // Left small box: First inning score (show 0 if complete, even if score is 0)
-        if (frame.inning1.complete) {
-          ctx.textAlign = 'center';
-          ctx.fillText(frame.inning1.scored, x + (boxWidth - 4) / 4, y + smallBoxHeight - 4);
-        }
+        if (isTenthFrame) {
+          // 10th frame special handling
+          const thirdWidth = (boxWidth - 4) / 3;
+          const x1 = x + thirdWidth / 2;
+          const x2 = x + thirdWidth + thirdWidth / 2;
+          const x3 = x + thirdWidth * 2 + thirdWidth / 2;
+          const textY = y + smallBoxHeight - 4;
+          
+          const bonus1 = frame.bonus[0];
+          const bonus2 = frame.bonus[1];
+          
+          if (frame.isStrike) {
+            // Strike: X in first box, then bonus rolls
+            ctx.fillText('X', x1, textY);
+            if (bonus1 !== undefined) {
+              const display = (bonus1 >= 10) ? 'X' : bonus1.toString();
+              ctx.fillText(display, x2, textY);
+            }
+            if (bonus2 !== undefined) {
+              const display = (bonus2 >= 10) ? 'X' : bonus2.toString();
+              ctx.fillText(display, x3, textY);
+            }
+          } else if (frame.isSpare) {
+            // Spare: inning1 score, /, then bonus
+            ctx.fillText(frame.inning1.scored.toString(), x1, textY);
+            ctx.fillText('/', x2, textY);
+            if (bonus1 !== undefined) {
+              const display = (bonus1 >= 10) ? 'X' : bonus1.toString();
+              ctx.fillText(display, x3, textY);
+            }
+          } else if (frame.inning1.complete) {
+            // Open frame: show both innings
+            ctx.fillText(frame.inning1.scored.toString(), x1, textY);
+            if (frame.inning2.complete) {
+              ctx.fillText(frame.inning2.scored.toString(), x2, textY);
+            }
+          }
+        } else {
+          // Regular frames 1-9
+          // Left small box: First inning score
+          if (frame.inning1.complete) {
+            ctx.textAlign = 'center';
+            ctx.fillText(frame.inning1.scored, x + (boxWidth - 4) / 4, y + smallBoxHeight - 4);
+          }
 
-        // Right small box: Second inning score or spare/strike
-        if (frame.isStrike) {
-          ctx.textAlign = 'center';
-          ctx.fillText('X', x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
-        } else if (frame.isSpare) {
-          ctx.textAlign = 'center';
-          ctx.fillText('/', x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
-        } else if (frame.inning2.complete) {
-          // Show score even if it's 0
-          ctx.textAlign = 'center';
-          ctx.fillText(frame.inning2.scored, x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
+          // Right small box: Second inning score or spare/strike
+          if (frame.isStrike) {
+            ctx.textAlign = 'center';
+            ctx.fillText('X', x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
+          } else if (frame.isSpare) {
+            ctx.textAlign = 'center';
+            ctx.fillText('/', x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
+          } else if (frame.inning2.complete) {
+            ctx.textAlign = 'center';
+            ctx.fillText(frame.inning2.scored, x + 3 * (boxWidth - 4) / 4, y + smallBoxHeight - 4);
+          }
         }
 
         // --- FRAME TOTAL (Big box on bottom) ---

@@ -487,6 +487,25 @@ export class NetworkManager {
       console.log('[NETWORK] Opponent requested new game');
       this.game.onOpponentNewGameRequest();
     });
+    
+    // Server confirmed both players want new game
+    this.socket.on('newGameConfirmed', () => {
+      console.log('[NETWORK] ===== NEW GAME CONFIRMED =====');
+      console.log('[NETWORK] Both players agreed to new game!');
+      this.game.onNewGameConfirmed();
+    });
+    
+    // Server confirmed our new game request was sent
+    this.socket.on('newGameRequestSent', () => {
+      console.log('[NETWORK] New game request sent, waiting for opponent...');
+      this.game.onNewGameRequestSent();
+    });
+    
+    // Opponent canceled their new game request
+    this.socket.on('opponentCanceledNewGame', () => {
+      console.log('[NETWORK] Opponent canceled new game request');
+      this.game.onOpponentCanceledNewGame();
+    });
 
     // Server announcing whose turn it is
     this.socket.on('turnChanged', (data) => {
@@ -718,5 +737,11 @@ export class NetworkManager {
     if (!this.isConnected || !this.roomCode) return;
     console.log('[NETWORK] Sending new game request');
     this.socket.emit('newGameRequest', { roomCode: this.roomCode });
+  }
+  
+  cancelNewGameRequest() {
+    if (!this.isConnected || !this.roomCode) return;
+    console.log('[NETWORK] Canceling new game request');
+    this.socket.emit('cancelNewGameRequest', { roomCode: this.roomCode });
   }
 }
