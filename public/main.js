@@ -754,9 +754,11 @@ class VRBowlliardsGame {
 
       if (result.isStrike) {
         this.celebrationSystem.celebrateStrike();
+        this.soundManager.playSound('strikeSpare', null, 1.0);
         this.showNotification('STRIKE on break!', 2500);
       } else if (result.isSpare) {
         this.celebrationSystem.celebrateSpare();
+        this.soundManager.playSound('strikeSpare', null, 1.0);
         this.showNotification('SPARE on break!', 2500);
       }
 
@@ -789,6 +791,7 @@ class VRBowlliardsGame {
       // Check for STRIKE on scratch (pocketed all 10 balls but also scratched)
       if (foulResult.isStrike) {
         this.celebrationSystem.celebrateStrike();
+        this.soundManager.playSound('strikeSpare', null, 1.0);
         if (foulResult.isTenthFrame) {
           this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
           this.poolTable.setupBalls();  // Re-rack for bonus
@@ -809,6 +812,7 @@ class VRBowlliardsGame {
       // Check for SPARE on scratch
       if (foulResult.isSpare) {
         this.celebrationSystem.celebrateSpare();
+        this.soundManager.playSound('strikeSpare', null, 1.0);
         if (foulResult.isTenthFrame) {
           this.showNotification('SPARE! 1 bonus roll coming...', 2500);
           this.poolTable.setupBalls();  // Re-rack for bonus
@@ -866,6 +870,7 @@ class VRBowlliardsGame {
         // Check for STRIKE on no-hit foul
         if (foulResult.isStrike) {
           this.celebrationSystem.celebrateStrike();
+          this.soundManager.playSound('strikeSpare', null, 1.0);
           if (foulResult.isTenthFrame) {
             this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
             this.poolTable.setupBalls();  // Re-rack for bonus
@@ -885,6 +890,7 @@ class VRBowlliardsGame {
         // Check for SPARE on no-hit foul
         if (foulResult.isSpare) {
           this.celebrationSystem.celebrateSpare();
+          this.soundManager.playSound('strikeSpare', null, 1.0);
           if (foulResult.isTenthFrame) {
             this.showNotification('SPARE! 1 bonus roll coming...', 2500);
             this.poolTable.setupBalls();  // Re-rack for bonus
@@ -927,6 +933,7 @@ class VRBowlliardsGame {
 
     if (result.isStrike) {
       this.celebrationSystem.celebrateStrike();
+      this.soundManager.playSound('strikeSpare', null, 1.0);
       this.showNotification('STRIKE!', 2500);
       // In 10th frame, don't advance - need bonus rolls
       if (!result.isTenthFrame) {
@@ -941,6 +948,7 @@ class VRBowlliardsGame {
       }
     } else if (result.isSpare) {
       this.celebrationSystem.celebrateSpare();
+      this.soundManager.playSound('strikeSpare', null, 1.0);
       this.showNotification('SPARE!', 2500);
       // In 10th frame, don't advance - need bonus roll
       if (!result.isTenthFrame) {

@@ -21,7 +21,8 @@ export class SoundManager {
       pocketSoft: 'ball falling in pocket slowly.mp3',
       pocketHard: 'ball falling into pocket hard shot.mp3',
       hustlerMovie: 'The VR Hustler (Full Movie).mp3',
-      yourTurn: 'It is Your turn.mp3'
+      yourTurn: 'It is Your turn.mp3',
+      strikeSpare: 'bowling strike or spare.mp3'
     };
 
     this.baseVolumes = {
@@ -32,7 +33,8 @@ export class SoundManager {
       pocketSoft: 0.7,
       pocketHard: 1.0,
       hustlerMovie: 0.4,
-      yourTurn: 1.0
+      yourTurn: 1.0,
+      strikeSpare: 1.0
     };
   }
 
