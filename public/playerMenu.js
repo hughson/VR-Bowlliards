@@ -36,6 +36,9 @@ export class PlayerMenu {
     // B button state tracking
     this.bButtonWasPressed = false;
     
+    // Track game state for re-rendering when it changes
+    this.lastKnownGameState = null;
+    
     this.init();
   }
   
@@ -604,6 +607,7 @@ export class PlayerMenu {
     if (this.isOpen) return;
     
     this.isOpen = true;
+    this.lastKnownGameState = this.game.gameState; // Track current state
     // Use smaller scale in VR (attached to controller), larger on desktop
     const session = this.game.renderer.xr.getSession();
     this.targetScale = session ? 0.5 : 1;
@@ -724,6 +728,12 @@ export class PlayerMenu {
     // Update hover states and check for clicks
     if (this.isOpen) {
       this.checkInteraction();
+      
+      // Re-render if game state changed (e.g., game ended)
+      if (this.game.gameState !== this.lastKnownGameState) {
+        this.lastKnownGameState = this.game.gameState;
+        this.render();
+      }
     }
   }
   

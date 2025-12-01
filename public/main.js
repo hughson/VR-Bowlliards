@@ -85,6 +85,12 @@ class VRBowlliardsGame {
   }
 
   setTurnState(isMyTurn) {
+    // Don't change turn state if game is over
+    if (this.gameState === 'gameOver') {
+      console.log(`[GAME] Ignoring turn change - game is over`);
+      return;
+    }
+    
     console.log(`[GAME] ===== SET TURN STATE =====`);
     console.log(`[GAME] Setting turn to: ${isMyTurn ? "MY TURN" : "OPPONENT'S TURN"}`);
     console.log(`[GAME] Player Number: ${this.myPlayerNumber}`);
@@ -1069,6 +1075,13 @@ class VRBowlliardsGame {
 
   onOpponentFrameComplete() {
     console.log("[GAME] Opponent frame complete - My Turn Now");
+    
+    // Don't process if game is already over
+    if (this.gameState === 'gameOver') {
+      console.log("[GAME] Ignoring opponent frame complete - game is over");
+      this.checkGameComplete(); // Still check if both players finished
+      return;
+    }
     
     // Check if I should advance my frame number (sync logic)
     const currentFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
