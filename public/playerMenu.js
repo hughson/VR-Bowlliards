@@ -200,17 +200,10 @@ export class PlayerMenu {
       bgColor1 = isHovered ? 'rgba(255, 180, 0, 0.95)' : 'rgba(220, 150, 0, 0.9)';
       bgColor2 = isHovered ? 'rgba(220, 150, 0, 0.95)' : 'rgba(180, 120, 0, 0.9)';
       borderColor = '#ffaa00';
-    } else if (!gameOver) {
-      // Multiplayer game in progress - greyed out
-      isClickable = false;
-      buttonText = '🔒 Game in Progress';
-      bgColor1 = 'rgba(60, 60, 60, 0.7)';
-      bgColor2 = 'rgba(40, 40, 40, 0.7)';
-      borderColor = '#555555';
     } else if (newGameRequestPending) {
       // We've sent request, waiting for opponent
       isClickable = false;
-      buttonText = '⏳ Waiting...';
+      buttonText = '⏳ Waiting for opponent...';
       bgColor1 = 'rgba(100, 100, 0, 0.7)';
       bgColor2 = 'rgba(80, 80, 0, 0.7)';
       borderColor = '#aaaa00';
@@ -222,12 +215,12 @@ export class PlayerMenu {
       bgColor2 = isHovered ? 'rgba(0, 200, 80, 0.95)' : 'rgba(0, 160, 60, 0.9)';
       borderColor = '#00ff88';
     } else {
-      // Game over, no requests - can request new game
+      // Multiplayer - can request new game anytime
       isClickable = true;
-      buttonText = '🎱 Play Again!';
-      bgColor1 = isHovered ? 'rgba(0, 220, 100, 0.95)' : 'rgba(0, 180, 80, 0.9)';
-      bgColor2 = isHovered ? 'rgba(0, 180, 80, 0.95)' : 'rgba(0, 140, 60, 0.9)';
-      borderColor = '#00ff88';
+      buttonText = '🎱 Request New Game';
+      bgColor1 = isHovered ? 'rgba(0, 180, 220, 0.95)' : 'rgba(0, 140, 180, 0.9)';
+      bgColor2 = isHovered ? 'rgba(0, 140, 180, 0.95)' : 'rgba(0, 100, 140, 0.9)';
+      borderColor = '#00aaff';
     }
     
     // Button background
@@ -253,8 +246,8 @@ export class PlayerMenu {
     }
     
     // Button text
-    ctx.fillStyle = isClickable ? '#ffffff' : '#888888';
-    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+    ctx.fillStyle = isClickable ? '#ffffff' : '#cccccc';
+    ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(buttonText, btnX + btnW / 2, btnY + btnH / 2);
@@ -866,32 +859,21 @@ export class PlayerMenu {
     } else if (btn.id === 'voiceConnect') {
       this.connectVoice();
     } else if (btn.id === 'newGame') {
-      // New Game button logic
+      // New Game button logic - available anytime in multiplayer
       const isMultiplayer = this.game.isMultiplayer;
-      const gameOver = this.game.gameState === 'gameOver';
       const newGameRequestPending = this.game.newGameRequestPending || false;
       
-      // Determine if clickable
-      let isClickable = false;
-      if (!isMultiplayer) {
-        isClickable = true;
-      } else if (gameOver && !newGameRequestPending) {
-        isClickable = true;
-      }
-      
-      if (isClickable) {
-        console.log('[MENU] New Game button clicked');
-        this.game.startNewGame();
-        // Don't close menu immediately in multiplayer - show waiting state
-        if (!isMultiplayer) {
-          this.close();
-        }
-      } else if (newGameRequestPending) {
+      // Only blocked if already waiting for opponent
+      if (newGameRequestPending) {
         console.log('[MENU] Already waiting for opponent');
         this.game.showNotification('Already waiting for opponent...', 2000);
       } else {
-        console.log('[MENU] New Game blocked - multiplayer game in progress');
-        this.game.showNotification('Game in progress - cannot reset', 2000);
+        console.log('[MENU] New Game button clicked');
+        this.game.startNewGame();
+        // Don't close menu in multiplayer - show waiting state
+        if (!isMultiplayer) {
+          this.close();
+        }
       }
     } else if (btn.id.startsWith('mute_')) {
       const playerId = btn.id.replace('mute_', '');

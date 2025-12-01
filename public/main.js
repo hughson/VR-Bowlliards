@@ -1379,11 +1379,8 @@ class VRBowlliardsGame {
       this.playerMenu.render();
     }
     
-    if (this.gameState === 'gameOver') {
-      this.showNotification('Opponent wants to play again! Click "New Game" to accept.', 5000);
-    } else {
-      console.log('[GAME] Ignoring new game request - game not over yet');
-    }
+    // Show notification - works anytime
+    this.showNotification('Opponent wants to start a new game! Press B → Accept to confirm.', 5000);
   }
   
   onNewGameConfirmed() {
@@ -1476,15 +1473,8 @@ class VRBowlliardsGame {
   }
 
   startNewGame() {
-    // Block reset in multiplayer mode unless game is over
-    if (this.isMultiplayer && this.gameState !== 'gameOver') {
-      this.showNotification('Reset disabled - game in progress', 2500);
-      console.log('[GAME] Reset blocked - multiplayer game in progress');
-      return;
-    }
-
-    // If multiplayer and game is over, send new game request to opponent
-    if (this.isMultiplayer && this.gameState === 'gameOver') {
+    // If multiplayer, use the two-player confirmation system (available anytime)
+    if (this.isMultiplayer) {
       // If we already sent a request, show waiting message
       if (this.newGameRequestPending) {
         this.showNotification('Already waiting for opponent...', 2000);
