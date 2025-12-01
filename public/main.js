@@ -785,6 +785,47 @@ class VRBowlliardsGame {
       const ballsPocketedOnFoul = pocketedBalls.length;
       console.log(`[FOUL] Scratch! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
       const foulResult = this.rulesEngine.processFoulAfterBreak(ballsPocketedOnFoul);
+      
+      // Check for STRIKE on scratch (pocketed all 10 balls but also scratched)
+      if (foulResult.isStrike) {
+        this.celebrationSystem.celebrateStrike();
+        if (foulResult.isTenthFrame) {
+          this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
+          this.poolTable.setupBalls();  // Re-rack for bonus
+          this.poolTable.showCueBall();
+          this.gameState = 'ballInHand';
+          this.ballInHand.enable(true);
+          this.updateScoreboard();
+          this.poolTable.resetShotTracking();
+          return;
+        } else {
+          this.showNotification('STRIKE!', 2500);
+          await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
+        }
+      }
+      
+      // Check for SPARE on scratch
+      if (foulResult.isSpare) {
+        this.celebrationSystem.celebrateSpare();
+        if (foulResult.isTenthFrame) {
+          this.showNotification('SPARE! 1 bonus roll coming...', 2500);
+          this.poolTable.setupBalls();  // Re-rack for bonus
+          this.poolTable.showCueBall();
+          this.gameState = 'ballInHand';
+          this.ballInHand.enable(true);
+          this.updateScoreboard();
+          this.poolTable.resetShotTracking();
+          return;
+        } else {
+          this.showNotification('SPARE!', 2500);
+          await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
+        }
+      }
+      
       if (foulResult.gameOver) {
          this.showNotification('Foul, game over!', 2000);
          await this.advanceFrame();
@@ -821,17 +862,53 @@ class VRBowlliardsGame {
         const ballsPocketedOnFoul = pocketedBalls.length;
         console.log(`[FOUL] No hit foul! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
         const foulResult = this.rulesEngine.processNoHitFoul(ballsPocketedOnFoul);
+        
+        // Check for STRIKE on no-hit foul
+        if (foulResult.isStrike) {
+          this.celebrationSystem.celebrateStrike();
+          if (foulResult.isTenthFrame) {
+            this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
+            this.poolTable.setupBalls();  // Re-rack for bonus
+            this.updateScoreboard();
+            this.gameState = 'ready';
+            this.ballInHand.enable(true);
+            this.poolTable.resetShotTracking();
+            return;
+          } else {
+            this.showNotification('STRIKE!', 2500);
+            await this.advanceFrame();
+            this.poolTable.resetShotTracking();
+            return;
+          }
+        }
+        
+        // Check for SPARE on no-hit foul
+        if (foulResult.isSpare) {
+          this.celebrationSystem.celebrateSpare();
+          if (foulResult.isTenthFrame) {
+            this.showNotification('SPARE! 1 bonus roll coming...', 2500);
+            this.poolTable.setupBalls();  // Re-rack for bonus
+            this.updateScoreboard();
+            this.gameState = 'ready';
+            this.ballInHand.enable(true);
+            this.poolTable.resetShotTracking();
+            return;
+          } else {
+            this.showNotification('SPARE!', 2500);
+            await this.advanceFrame();
+            this.poolTable.resetShotTracking();
+            return;
+          }
+        }
+        
         if (foulResult.gameOver) {
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
         } else if (foulResult.inningComplete && !foulResult.isTenthFrame) {
-             if (foulResult.isStrike) this.showNotification('Strike!', 2000);
-             else {
-               const msg = ballsPocketedOnFoul > 0
-                 ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Open frame.`
-                 : 'Open frame';
-               this.showNotification(msg, 2500);
-             }
+             const msg = ballsPocketedOnFoul > 0
+               ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Open frame.`
+               : 'Open frame';
+             this.showNotification(msg, 2500);
              await this.advanceFrame();
         } else {
              const msg = ballsPocketedOnFoul > 0

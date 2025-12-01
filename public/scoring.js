@@ -336,17 +336,49 @@ export class BowlliardsRulesEngine {
     // Special logic for 10th frame foul
     if (this.currentFrame === 9) {
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        // ACCUMULATE balls pocketed on foul
         frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
         frame.inning1.complete = true;
+        
+        // Check for STRIKE (10 balls in first inning, even on a scratch)
+        if (frame.inning1.scored >= 10) {
+          frame.isStrike = true;
+          this.bonusRolls = 2;
+          this.currentInning = 2;
+          this.breakProcessed = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: true, 
+            inningComplete: false, 
+            isStrike: true,
+            isTenthFrame: true
+          };
+        }
+        
         this.currentInning = 2;
         this.calculateScores();
         return { grantBallInHand: true, inningComplete: false };
       } else {
-        frame.inning1.complete = true;  // Ensure inning1 is complete for scoring
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        frame.inning1.complete = true;
+        // ACCUMULATE balls pocketed on foul
         frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
         frame.inning2.complete = true;
+        
+        // Check for SPARE (inning1 + inning2 = 10)
+        const totalScored = frame.inning1.scored + frame.inning2.scored;
+        if (totalScored >= 10) {
+          frame.isSpare = true;
+          this.bonusRolls = 1;
+          this.breakProcessed = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: true, 
+            inningComplete: false,
+            isSpare: true,
+            isTenthFrame: true
+          };
+        }
+        
         frame.isOpen = true;
         this.calculateScores();
         return { grantBallInHand: false, inningComplete: true };
@@ -355,16 +387,41 @@ export class BowlliardsRulesEngine {
 
     // Frames 1–9
     if (this.currentInning === 1) {
-      // ACCUMULATE balls pocketed on foul (not overwrite)
+      // ACCUMULATE balls pocketed on foul
       frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
       frame.inning1.complete = true;
+      
+      // Check for STRIKE (10 balls in first inning, even on a scratch)
+      if (frame.inning1.scored >= 10) {
+        frame.isStrike = true;
+        this.calculateScores();
+        return { 
+          grantBallInHand: false, 
+          inningComplete: true,
+          isStrike: true
+        };
+      }
+      
       this.currentInning = 2;
       this.calculateScores();
       return { grantBallInHand: true, inningComplete: false };
     } else {
-      // ACCUMULATE balls pocketed on foul (not overwrite)
+      // ACCUMULATE balls pocketed on foul
       frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
       frame.inning2.complete = true;
+      
+      // Check for SPARE (inning1 + inning2 = 10)
+      const totalScored = frame.inning1.scored + frame.inning2.scored;
+      if (totalScored >= 10) {
+        frame.isSpare = true;
+        this.calculateScores();
+        return { 
+          grantBallInHand: false, 
+          inningComplete: true,
+          isSpare: true
+        };
+      }
+      
       frame.isOpen = true;
       this.calculateScores();
       return { grantBallInHand: false, inningComplete: true };
@@ -403,28 +460,91 @@ export class BowlliardsRulesEngine {
     if (this.currentFrame === 9) {
       // 10th frame
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        // ACCUMULATE balls pocketed on foul
         frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
         frame.inning1.complete = true;
+        
+        // Check for STRIKE (10 balls in first inning)
+        if (frame.inning1.scored >= 10) {
+          frame.isStrike = true;
+          this.bonusRolls = 2;
+          this.currentInning = 2;
+          this.breakProcessed = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: false, 
+            inningComplete: false, 
+            isStrike: true,
+            isTenthFrame: true,
+            gameOver: false
+          };
+        }
+        
         this.currentInning = 2;
       } else {
-        frame.inning1.complete = true;  // Ensure inning1 is complete for scoring
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        frame.inning1.complete = true;
+        // ACCUMULATE balls pocketed on foul
         frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
         frame.inning2.complete = true;
+        
+        // Check for SPARE (inning1 + inning2 = 10)
+        const totalScored = frame.inning1.scored + frame.inning2.scored;
+        if (totalScored >= 10) {
+          frame.isSpare = true;
+          this.bonusRolls = 1;
+          this.breakProcessed = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: false, 
+            inningComplete: false,
+            isSpare: true,
+            isTenthFrame: true,
+            gameOver: false
+          };
+        }
+        
         frame.isOpen = true;
       }
     } else {
       // Frames 1–9
       if (this.currentInning === 1) {
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        // ACCUMULATE balls pocketed on foul
         frame.inning1.scored = (frame.inning1.scored || 0) + ballsPocketedOnFoul;
         frame.inning1.complete = true;
+        
+        // Check for STRIKE (10 balls in first inning)
+        if (frame.inning1.scored >= 10) {
+          frame.isStrike = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: false, 
+            inningComplete: true,
+            isStrike: true,
+            isTenthFrame: false,
+            gameOver: this.isGameComplete()
+          };
+        }
+        
         this.currentInning = 2;
       } else {
-        // ACCUMULATE balls pocketed on foul (not overwrite)
+        // ACCUMULATE balls pocketed on foul
         frame.inning2.scored = (frame.inning2.scored || 0) + ballsPocketedOnFoul;
         frame.inning2.complete = true;
+        
+        // Check for SPARE (inning1 + inning2 = 10)
+        const totalScored = frame.inning1.scored + frame.inning2.scored;
+        if (totalScored >= 10) {
+          frame.isSpare = true;
+          this.calculateScores();
+          return { 
+            grantBallInHand: false, 
+            inningComplete: true,
+            isSpare: true,
+            isTenthFrame: false,
+            gameOver: this.isGameComplete()
+          };
+        }
+        
         frame.isOpen = true;
       }
     }
