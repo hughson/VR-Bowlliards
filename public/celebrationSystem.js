@@ -8,6 +8,9 @@ export class CelebrationSystem {
     
     this.activeText = [];
     this.activeParticles = [];
+    
+    // Pending game over celebration (delayed after strike/spare)
+    this.pendingGameOver = null;
   }
 
   celebrateStrike() {
@@ -43,6 +46,82 @@ export class CelebrationSystem {
   celebrateTie() {
     // Silver text for tie (no confetti)
     this.spawnFloatingText("TIE GAME!", new THREE.Vector3(0, 1.5, 0), 0xc0c0c0, 2.0);
+  }
+
+  // Clear all active celebrations immediately
+  clearCelebrations() {
+    // Clear text
+    for (let i = this.activeText.length - 1; i >= 0; i--) {
+      const t = this.activeText[i];
+      this.scene.remove(t.mesh);
+      if (t.mesh.material.map) t.mesh.material.map.dispose();
+      t.mesh.material.dispose();
+    }
+    this.activeText = [];
+    
+    // Clear particles
+    for (let i = this.activeParticles.length - 1; i >= 0; i--) {
+      const p = this.activeParticles[i];
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+    }
+    this.activeParticles = [];
+  }
+
+  // Check if there are any active celebrations
+  hasActiveCelebrations() {
+    return this.activeText.length > 0 || this.activeParticles.length > 0;
+  }
+
+  // Schedule game over celebration after strike/spare finishes
+  celebrateGameOverDelayed(score, delayMs = 2500) {
+    // Cancel any pending game over
+    if (this.pendingGameOver) {
+      clearTimeout(this.pendingGameOver);
+    }
+    
+    // Only delay if there are active celebrations (strike/spare), otherwise show immediately
+    if (this.hasActiveCelebrations()) {
+      this.pendingGameOver = setTimeout(() => {
+        this.clearCelebrations();
+        this.celebrateGameOver(score);
+        this.pendingGameOver = null;
+      }, delayMs);
+    } else {
+      this.celebrateGameOver(score);
+    }
+  }
+
+  // Schedule win/loss/tie celebration after strike/spare finishes
+  celebrateResultDelayed(result, delayMs = 2500) {
+    // Cancel any pending game over
+    if (this.pendingGameOver) {
+      clearTimeout(this.pendingGameOver);
+    }
+    
+    // Only delay if there are active celebrations (strike/spare), otherwise show immediately
+    if (this.hasActiveCelebrations()) {
+      this.pendingGameOver = setTimeout(() => {
+        this.clearCelebrations();
+        if (result === 'win') {
+          this.celebrateWin();
+        } else if (result === 'loss') {
+          this.celebrateLoss();
+        } else if (result === 'tie') {
+          this.celebrateTie();
+        }
+        this.pendingGameOver = null;
+      }, delayMs);
+    } else {
+      if (result === 'win') {
+        this.celebrateWin();
+      } else if (result === 'loss') {
+        this.celebrateLoss();
+      } else if (result === 'tie') {
+        this.celebrateTie();
+      }
+    }
   }
 
   spawnFloatingText(message, position, colorHex, scale = 1.0) {

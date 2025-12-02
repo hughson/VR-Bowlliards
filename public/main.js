@@ -1281,9 +1281,9 @@ class VRBowlliardsGame {
       this.gameState = 'gameOver';
       this.showNotification(`Game Over! Score: ${finalScore}. Press R or click New Game to play again.`, 10000);
       
-      // Celebrate game over with floating text
+      // Celebrate game over with floating text (delayed to let strike/spare celebration finish first)
       if (this.celebrationSystem) {
-        this.celebrationSystem.celebrateGameOver(finalScore);
+        this.celebrationSystem.celebrateGameOverDelayed(finalScore, 2500);
       }
       
       let playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
@@ -1412,25 +1412,19 @@ class VRBowlliardsGame {
       if (myScore > oppScore) {
         this.showNotification(`YOU WIN! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'win';
-        // Celebrate win with floating text and confetti
-        if (this.celebrationSystem) {
-          this.celebrationSystem.celebrateWin();
-        }
       } else if (oppScore > myScore) {
         this.showNotification(`YOU LOSE! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'loss';
-        // Show loss floating text
-        if (this.celebrationSystem) {
-          this.celebrationSystem.celebrateLoss();
-        }
       } else {
         this.showNotification(`TIE GAME! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'tie';
-        // Show tie floating text
-        if (this.celebrationSystem) {
-          this.celebrationSystem.celebrateTie();
-        }
       }
+      
+      // Celebrate result (delayed to let strike/spare celebration finish first)
+      if (this.celebrationSystem) {
+        this.celebrationSystem.celebrateResultDelayed(gameResult, 2500);
+      }
+      
       this.gameState = 'gameOver';
       this.isMyTurn = false;  // CRITICAL: Prevent processing any more shots
       console.log('[GAME] ===== GAME OVER ===== Both players finished. Click New Game to play again.');
