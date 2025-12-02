@@ -678,6 +678,24 @@ class VRBowlliardsGame {
 
   checkBallsSettled() {
     if (this.gameState !== 'shooting') return;
+    
+    // CRITICAL: Don't trigger processShot for opponent's shots when our game is complete
+    // Check this early to avoid unnecessary processing
+    if (this.isMultiplayer && this.rulesEngine && this.rulesEngine.isGameComplete()) {
+      // Our game is done - just mark balls as settled without processing
+      const allSettled = this.poolTable.balls.every((ball) => {
+        if (ball.position.y < -0.5 || ball.userData.isPocketed) return true;
+        const body = ball.userData.physicsBody;
+        return body.velocity.length() < 0.1 && body.angularVelocity.length() < 0.1;
+      });
+      if (allSettled && !this.ballsSettled) {
+        this.ballsSettled = true;
+        this.gameState = 'gameOver';  // Restore gameOver state
+        console.log('[GAME] Balls settled but game is complete - not processing shot');
+      }
+      return;
+    }
+    
     const allSettled = this.poolTable.balls.every((ball) => {
       if (ball.position.y < -0.5 || ball.userData.isPocketed) return true;
       const body = ball.userData.physicsBody;
@@ -728,17 +746,25 @@ class VRBowlliardsGame {
   }
 
   executeRemoteShot(direction, power, spin) {
+    // CRITICAL: Don't process remote shots if our game is over
+    // This prevents opponent's 10th frame shots from affecting our score
+    if (this.gameState === 'gameOver') {
+      console.log('[GAME] Ignoring remote shot - our game is over');
+      // Still execute the visual ball movement for spectating
+      this.poolTable.shootCueBall(direction, power, spin);
+      this.isAuthority = false;
+      // Don't set gameState to 'shooting' - keep it as 'gameOver'
+      return;
+    }
+    
     this.showNotification('Opponent is shooting...', 1500);
     this.ballInHand.disable();
     this.isAuthority = false;
-    const wasBreak = this.rulesEngine.isBreakShot();
+    // Don't track break for opponent's shots - their scores come via network
     this.poolTable.shootCueBall(direction, power, spin);
     this.gameState = 'shooting';
     this.ballsSettled = false;
-    if (wasBreak) {
-      this.breakShotTaken = true;
-      this.frameJustStarted = false;
-    }
+    // Note: Don't set breakShotTaken for remote shots - we don't process their scores locally
   }
 
   async processShot() {
@@ -748,12 +774,31 @@ class VRBowlliardsGame {
       return;
     }
     
+    // CRITICAL FIX: In multiplayer, only process shots if it's our turn
+    // Otherwise opponent's pocketed balls get added to our score!
+    if (this.isMultiplayer && !this.isMyTurn) {
+      console.log('[PROCESSSHOT] BLOCKED - Not my turn, skipping local score processing');
+      console.log('[PROCESSSHOT] Opponent scores will come via network update');
+      this.gameState = 'waiting';
+      this.poolTable.resetShotTracking();
+      return;
+    }
+    
+    // CRITICAL FIX: Don't process shots if we're not the authority (watching opponent)
+    // This prevents double-scoring when opponent's shot is replayed locally
+    if (this.isMultiplayer && !this.isAuthority) {
+      console.log('[PROCESSSHOT] BLOCKED - Not authority, this is a remote shot replay');
+      this.poolTable.resetShotTracking();
+      return;
+    }
+    
     console.log('[PROCESSSHOT] Starting processShot:', {
       isMultiplayer: this.isMultiplayer,
       isMyTurn: this.isMyTurn,
       myPlayerNumber: this.myPlayerNumber,
       currentFrame: this.rulesEngine.currentFrame,
-      gameState: this.gameState
+      gameState: this.gameState,
+      isAuthority: this.isAuthority
     });
     
     const pocketedBalls = this.poolTable.getPocketedBalls();
@@ -1185,6 +1230,11 @@ class VRBowlliardsGame {
         console.log("[GAME] Game is complete - ending game instead of switching turns");
         const finalScore = this.rulesEngine.getTotalScore();
         this.gameState = 'gameOver';
+        
+        // CRITICAL: Set isMyTurn to false so we don't process opponent's shots
+        this.isMyTurn = false;
+        console.log("[GAME] Set isMyTurn = false (game complete)");
+        
         this.showNotification(`Your game is complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
         
         // Export final scores to send to opponent
@@ -1382,6 +1432,7 @@ class VRBowlliardsGame {
         }
       }
       this.gameState = 'gameOver';
+      this.isMyTurn = false;  // CRITICAL: Prevent processing any more shots
       console.log('[GAME] ===== GAME OVER ===== Both players finished. Click New Game to play again.');
       
       // Save multiplayer game to stats tracker if logged in (with game result)
