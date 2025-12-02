@@ -463,6 +463,32 @@ export class BowlliardsRulesEngine {
    * @param {number} ballsPocketedOnFoul - Number of balls pocketed during the foul shot
    */
   processNoHitFoul(ballsPocketedOnFoul = 0) {
+    // Handle no-hit foul during bonus rolls in 10th frame
+    if (this.bonusRolls > 0) {
+      const frame10 = this.frames[9];
+      const currentBonusIndex = frame10.isStrike ? (2 - this.bonusRolls) : 0;
+
+      // Add any balls pocketed to the bonus score
+      frame10.bonus[currentBonusIndex] = (frame10.bonus[currentBonusIndex] || 0) + ballsPocketedOnFoul;
+      
+      this.bonusRolls--;
+      const gameOver = this.bonusRolls === 0;
+
+      if (!gameOver) {
+        this.breakProcessed = true;
+      }
+
+      this.calculateScores();
+
+      return {
+        isBonus: true,
+        inningComplete: true,
+        isTenthFrame: true,
+        grantBallInHand: false,
+        gameOver
+      };
+    }
+
     const frame = this.frames[this.currentFrame];
 
     if (this.currentFrame === 9) {

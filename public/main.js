@@ -95,6 +95,23 @@ class VRBowlliardsGame {
       return;
     }
     
+    // Don't change turn state while balls are in motion from our shot
+    if (!isMyTurn && this.isMyTurn && this.gameState === 'shooting') {
+      console.log(`[GAME] ===== IGNORING TURN CHANGE =====`);
+      console.log(`[GAME] Reason: Currently shooting, balls in motion`);
+      return;
+    }
+    
+    // CRITICAL: Don't switch turn AWAY from player if they're in 10th frame and haven't finished
+    // This prevents opponent's game completion from interrupting our 10th frame
+    if (!isMyTurn && this.isMyTurn && this.rulesEngine.currentFrame === 9 && !this.rulesEngine.isGameComplete()) {
+      console.log(`[GAME] ===== IGNORING TURN CHANGE =====`);
+      console.log(`[GAME] Reason: Currently in 10th frame and game not complete`);
+      console.log(`[GAME] Current frame: ${this.rulesEngine.currentFrame + 1}, Game complete: ${this.rulesEngine.isGameComplete()}`);
+      console.log(`[GAME] Keeping turn as MY TURN to finish 10th frame`);
+      return;
+    }
+    
     console.log(`[GAME] ===== SET TURN STATE =====`);
     console.log(`[GAME] Setting turn to: ${isMyTurn ? "MY TURN" : "OPPONENT'S TURN"}`);
     console.log(`[GAME] Player Number: ${this.myPlayerNumber}`);
@@ -756,18 +773,54 @@ class VRBowlliardsGame {
       
       const result = this.rulesEngine.processShot(ballsScored, true);
 
+      // Handle STRIKE on break
       if (result.isStrike) {
         this.celebrationSystem.celebrateStrike();
         this.soundManager.playSound('strikeSpare', null, 1.0);
-        this.showNotification('STRIKE on break!', 2500);
-      } else if (result.isSpare) {
+        
+        if (result.isTenthFrame) {
+          // 10th frame strike on break - re-rack for bonus rolls
+          this.showNotification('STRIKE on break! 2 bonus rolls coming...', 2500);
+          this.poolTable.setupBalls();  // Re-rack for bonus
+          this.gameState = 'ready';
+          this.ballInHand.enable(true);
+          this.updateScoreboard();
+          this.poolTable.resetShotTracking();
+          return;
+        } else {
+          // Frames 1-9: Strike on break - advance frame
+          this.showNotification('STRIKE on break!', 2500);
+          await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
+        }
+      }
+      
+      // Handle SPARE on break
+      if (result.isSpare) {
         this.celebrationSystem.celebrateSpare();
         this.soundManager.playSound('strikeSpare', null, 1.0);
-        this.showNotification('SPARE on break!', 2500);
+        
+        if (result.isTenthFrame) {
+          // 10th frame spare on break - re-rack for bonus roll
+          this.showNotification('SPARE on break! 1 bonus roll coming...', 2500);
+          this.poolTable.setupBalls();  // Re-rack for bonus
+          this.gameState = 'ready';
+          this.ballInHand.enable(true);
+          this.updateScoreboard();
+          this.poolTable.resetShotTracking();
+          return;
+        } else {
+          // Frames 1-9: Spare on break - advance frame
+          this.showNotification('SPARE on break!', 2500);
+          await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
+        }
       }
 
       if (scratch) {
-        this.showNotification('Scratch on break! Ball in kitchen.', 2500);
+        this.showNotification('Scratch on break! Ball in hand.', 2500);
         this.poolTable.showCueBall();
         this.gameState = 'ballInHand';
         this.ballInHand.enable(true); 
@@ -791,6 +844,26 @@ class VRBowlliardsGame {
       const ballsPocketedOnFoul = pocketedBalls.length;
       console.log(`[FOUL] Scratch! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
       const foulResult = this.rulesEngine.processFoulAfterBreak(ballsPocketedOnFoul);
+      
+      // Handle scratch during bonus rolls (10th frame)
+      if (foulResult.isBonus) {
+        if (foulResult.gameOver) {
+          this.showNotification('Bonus rolls complete!', 2000);
+          await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
+        } else {
+          // More bonus rolls - re-rack and ball in hand
+          this.showNotification('Scratch! Ball in hand.', 2500);
+          this.poolTable.setupBalls();
+          this.poolTable.showCueBall();
+          this.gameState = 'ballInHand';
+          this.ballInHand.enable(true);
+          this.updateScoreboard();
+          this.poolTable.resetShotTracking();
+          return;
+        }
+      }
       
       // Check for STRIKE on scratch (pocketed all 10 balls but also scratched)
       if (foulResult.isStrike) {
@@ -841,10 +914,7 @@ class VRBowlliardsGame {
          return;
       }
       if (foulResult.inningComplete && !foulResult.isTenthFrame) {
-         const msg = ballsPocketedOnFoul > 0 
-           ? `Scratch! ${ballsPocketedOnFoul} ball(s) counted. Frame ended.`
-           : 'Scratch! Frame ended.';
-         this.showNotification(msg, 2500);
+         this.showNotification('Scratch! Frame ended.', 2500);
          await this.advanceFrame();
          this.poolTable.resetShotTracking();
          return;
@@ -856,11 +926,8 @@ class VRBowlliardsGame {
       if (!this.isVR && this.desktopControls) {
          this.ballInHand.grab(null);
          this.desktopControls.orbitControls.enabled = false;
-         const msg = ballsPocketedOnFoul > 0 
-           ? `Scratch! ${ballsPocketedOnFoul} ball(s) counted. Place ball.`
-           : 'Scratch! Move mouse to place ball.';
-         this.showNotification(msg, 2500);
       }
+      this.showNotification('Scratch! Ball in hand.', 2500);
       this.poolTable.resetShotTracking();
       this.updateScoreboard();
       return; 
@@ -870,6 +937,25 @@ class VRBowlliardsGame {
         const ballsPocketedOnFoul = pocketedBalls.length;
         console.log(`[FOUL] No hit foul! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
         const foulResult = this.rulesEngine.processNoHitFoul(ballsPocketedOnFoul);
+        
+        // Handle no-hit foul during bonus rolls (10th frame)
+        if (foulResult.isBonus) {
+          if (foulResult.gameOver) {
+            this.showNotification('Bonus rolls complete!', 2000);
+            await this.advanceFrame();
+            this.poolTable.resetShotTracking();
+            return;
+          } else {
+            // More bonus rolls - re-rack
+            this.showNotification('Foul! Continue bonus roll.', 2500);
+            this.poolTable.setupBalls();
+            this.gameState = 'ready';
+            this.ballInHand.enable(true);
+            this.updateScoreboard();
+            this.poolTable.resetShotTracking();
+            return;
+          }
+        }
         
         // Check for STRIKE on no-hit foul
         if (foulResult.isStrike) {
@@ -915,16 +1001,10 @@ class VRBowlliardsGame {
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
         } else if (foulResult.inningComplete && !foulResult.isTenthFrame) {
-             const msg = ballsPocketedOnFoul > 0
-               ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Open frame.`
-               : 'Open frame';
-             this.showNotification(msg, 2500);
+             this.showNotification('Foul! Open frame.', 2500);
              await this.advanceFrame();
         } else {
-             const msg = ballsPocketedOnFoul > 0
-               ? `Foul! ${ballsPocketedOnFoul} ball(s) counted. Second inning!`
-               : 'Foul. Second inning!';
-             this.showNotification(msg, 2500);
+             this.showNotification('Foul! Second inning.', 2500);
              this.gameState = 'ready';
         }
         this.poolTable.resetShotTracking();
@@ -942,6 +1022,8 @@ class VRBowlliardsGame {
       // In 10th frame, don't advance - need bonus rolls
       if (!result.isTenthFrame) {
         await this.advanceFrame();
+        this.poolTable.resetShotTracking();
+        return;
       } else {
         // 10th frame strike - re-rack balls for bonus rolls
         this.showNotification('STRIKE! 2 bonus rolls coming...', 2500);
@@ -949,6 +1031,8 @@ class VRBowlliardsGame {
         this.updateScoreboard();
         this.gameState = 'ready';
         this.ballInHand.enable(true);
+        this.poolTable.resetShotTracking();
+        return;
       }
     } else if (result.isSpare) {
       this.celebrationSystem.celebrateSpare();
@@ -957,6 +1041,8 @@ class VRBowlliardsGame {
       // In 10th frame, don't advance - need bonus roll
       if (!result.isTenthFrame) {
         await this.advanceFrame();
+        this.poolTable.resetShotTracking();
+        return;
       } else {
         // 10th frame spare - re-rack balls for bonus roll
         this.showNotification('SPARE! 1 bonus roll coming...', 2500);
@@ -964,12 +1050,16 @@ class VRBowlliardsGame {
         this.updateScoreboard();
         this.gameState = 'ready';
         this.ballInHand.enable(true);
+        this.poolTable.resetShotTracking();
+        return;
       }
     } else if (result.isBonus) {
       // Handle bonus roll results
       if (result.gameOver) {
         this.showNotification('Bonus rolls complete!', 2000);
         await this.advanceFrame();
+        this.poolTable.resetShotTracking();
+        return;
       } else if (result.inningComplete) {
         // Bonus inning complete but more remain
         if (result.needsRerack) {
@@ -983,10 +1073,14 @@ class VRBowlliardsGame {
         }
         this.updateScoreboard();
         this.gameState = 'ready';
+        this.poolTable.resetShotTracking();
+        return;
       } else {
         // Still shooting in current bonus inning
         this.updateScoreboard();
         this.gameState = 'ready';
+        this.poolTable.resetShotTracking();
+        return;
       }
     } else if (result.inningComplete) {
       if (result.inning === 1) {
@@ -1022,6 +1116,8 @@ class VRBowlliardsGame {
         }
         
         this.gameState = 'ready';
+        this.poolTable.resetShotTracking();
+        return;
       } else {
         // Second inning complete
         if (result.isTenthFrame) {
@@ -1029,17 +1125,24 @@ class VRBowlliardsGame {
           if (result.gameOver) {
             this.showNotification(`10th Frame Complete: ${result.totalScored} total`, 2000);
             await this.advanceFrame(); // Will handle game completion
+            this.poolTable.resetShotTracking();
+            return;
           } else {
             // 10th frame but game not over - shouldn't happen for open frames
             // but might happen if there's a logic issue
             console.log('[GAME] 10th frame second inning complete but game not over?', result);
             this.showNotification(`Inning complete: ${result.totalScored} total`, 2000);
             this.gameState = 'ready';
+            this.poolTable.resetShotTracking();
+            this.updateScoreboard();
+            return;
           }
         } else {
           // Regular frames 1-9
           this.showNotification(`Open frame: ${result.totalScored} total`, 2000);
           await this.advanceFrame();
+          this.poolTable.resetShotTracking();
+          return;
         }
       }
     } else {
