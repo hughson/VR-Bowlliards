@@ -828,9 +828,17 @@ class VRBowlliardsGame {
           this.showNotification('STRIKE on break! 2 bonus rolls coming...', 2500);
           this.poolTable.setupBalls();  // Re-rack for bonus
           this.gameState = 'ready';
+          this.ballsSettled = true;  // CRITICAL: Allow shooting after re-rack
           this.ballInHand.enable(true);
           this.updateScoreboard();
           this.poolTable.resetShotTracking();
+          // CRITICAL: Update cue controller to enable shooting
+          if (this.cueController) this.cueController.update(true);
+          // In multiplayer, ensure we keep our turn for bonus rolls
+          if (this.isMultiplayer) {
+            this.isMyTurn = true;
+            console.log('[GAME] 10th frame strike on break - keeping turn for bonus rolls');
+          }
           return;
         } else {
           // Frames 1-9: Strike on break - advance frame
@@ -851,9 +859,17 @@ class VRBowlliardsGame {
           this.showNotification('SPARE on break! 1 bonus roll coming...', 2500);
           this.poolTable.setupBalls();  // Re-rack for bonus
           this.gameState = 'ready';
+          this.ballsSettled = true;  // CRITICAL: Allow shooting after re-rack
           this.ballInHand.enable(true);
           this.updateScoreboard();
           this.poolTable.resetShotTracking();
+          // CRITICAL: Update cue controller to enable shooting
+          if (this.cueController) this.cueController.update(true);
+          // In multiplayer, ensure we keep our turn for bonus roll
+          if (this.isMultiplayer) {
+            this.isMyTurn = true;
+            console.log('[GAME] 10th frame spare on break - keeping turn for bonus roll');
+          }
           return;
         } else {
           // Frames 1-9: Spare on break - advance frame
@@ -906,6 +922,10 @@ class VRBowlliardsGame {
           this.ballInHand.enable(true);
           this.updateScoreboard();
           this.poolTable.resetShotTracking();
+          // In multiplayer, ensure we keep our turn for remaining bonus rolls
+          if (this.isMultiplayer) {
+            this.isMyTurn = true;
+          }
           return;
         }
       }
@@ -922,6 +942,11 @@ class VRBowlliardsGame {
           this.ballInHand.enable(true);
           this.updateScoreboard();
           this.poolTable.resetShotTracking();
+          // In multiplayer, ensure we keep our turn for bonus rolls
+          if (this.isMultiplayer) {
+            this.isMyTurn = true;
+            console.log('[GAME] 10th frame strike on scratch - keeping turn for bonus rolls');
+          }
           return;
         } else {
           this.showNotification('STRIKE!', 2500);
@@ -943,6 +968,11 @@ class VRBowlliardsGame {
           this.ballInHand.enable(true);
           this.updateScoreboard();
           this.poolTable.resetShotTracking();
+          // In multiplayer, ensure we keep our turn for bonus roll
+          if (this.isMultiplayer) {
+            this.isMyTurn = true;
+            console.log('[GAME] 10th frame spare on scratch - keeping turn for bonus roll');
+          }
           return;
         } else {
           this.showNotification('SPARE!', 2500);
@@ -998,6 +1028,12 @@ class VRBowlliardsGame {
             this.ballInHand.enable(true);
             this.updateScoreboard();
             this.poolTable.resetShotTracking();
+            // CRITICAL: Update cue controller to enable shooting
+            if (this.cueController) this.cueController.update(true);
+            // In multiplayer, ensure we keep our turn for remaining bonus rolls
+            if (this.isMultiplayer) {
+              this.isMyTurn = true;
+            }
             return;
           }
         }
@@ -1013,6 +1049,13 @@ class VRBowlliardsGame {
             this.gameState = 'ready';
             this.ballInHand.enable(true);
             this.poolTable.resetShotTracking();
+            // CRITICAL: Update cue controller to enable shooting
+            if (this.cueController) this.cueController.update(true);
+            // In multiplayer, ensure we keep our turn for bonus rolls
+            if (this.isMultiplayer) {
+              this.isMyTurn = true;
+              console.log('[GAME] 10th frame strike on no-hit foul - keeping turn for bonus rolls');
+            }
             return;
           } else {
             this.showNotification('STRIKE!', 2500);
@@ -1033,6 +1076,13 @@ class VRBowlliardsGame {
             this.gameState = 'ready';
             this.ballInHand.enable(true);
             this.poolTable.resetShotTracking();
+            // CRITICAL: Update cue controller to enable shooting
+            if (this.cueController) this.cueController.update(true);
+            // In multiplayer, ensure we keep our turn for bonus roll
+            if (this.isMultiplayer) {
+              this.isMyTurn = true;
+              console.log('[GAME] 10th frame spare on no-hit foul - keeping turn for bonus roll');
+            }
             return;
           } else {
             this.showNotification('SPARE!', 2500);
@@ -1075,8 +1125,16 @@ class VRBowlliardsGame {
         this.poolTable.setupBalls();  // Re-rack for bonus
         this.updateScoreboard();
         this.gameState = 'ready';
+        this.ballsSettled = true;  // CRITICAL: Allow shooting after re-rack
         this.ballInHand.enable(true);
         this.poolTable.resetShotTracking();
+        // CRITICAL: Update cue controller to enable shooting
+        if (this.cueController) this.cueController.update(true);
+        // In multiplayer, ensure we keep our turn for bonus rolls
+        if (this.isMultiplayer) {
+          this.isMyTurn = true;
+          console.log('[GAME] 10th frame strike - keeping turn for bonus rolls');
+        }
         return;
       }
     } else if (result.isSpare) {
@@ -1094,8 +1152,16 @@ class VRBowlliardsGame {
         this.poolTable.setupBalls();  // Re-rack for bonus
         this.updateScoreboard();
         this.gameState = 'ready';
+        this.ballsSettled = true;  // CRITICAL: Allow shooting after re-rack
         this.ballInHand.enable(true);
         this.poolTable.resetShotTracking();
+        // CRITICAL: Update cue controller to enable shooting
+        if (this.cueController) this.cueController.update(true);
+        // In multiplayer, ensure we keep our turn for bonus rolls
+        if (this.isMultiplayer) {
+          this.isMyTurn = true;
+          console.log('[GAME] 10th frame spare - keeping turn for bonus roll');
+        }
         return;
       }
     } else if (result.isBonus) {
@@ -1111,6 +1177,7 @@ class VRBowlliardsGame {
           // Cleared all 10 - re-rack for next bonus inning
           this.showNotification('Another strike! Bonus roll continues...', 1500);
           this.poolTable.setupBalls();
+          this.ballsSettled = true;
           this.ballInHand.enable(true);
         } else {
           // Missed - continue from where you are for next bonus inning
@@ -1119,12 +1186,24 @@ class VRBowlliardsGame {
         this.updateScoreboard();
         this.gameState = 'ready';
         this.poolTable.resetShotTracking();
+        // CRITICAL: Update cue controller to enable shooting
+        if (this.cueController) this.cueController.update(true);
+        // In multiplayer, ensure we keep our turn for remaining bonus rolls
+        if (this.isMultiplayer) {
+          this.isMyTurn = true;
+        }
         return;
       } else {
         // Still shooting in current bonus inning
         this.updateScoreboard();
         this.gameState = 'ready';
         this.poolTable.resetShotTracking();
+        // CRITICAL: Update cue controller to enable shooting for next shot
+        if (this.cueController) this.cueController.update(true);
+        // In multiplayer, ensure we keep our turn during bonus rolls
+        if (this.isMultiplayer) {
+          this.isMyTurn = true;
+        }
         return;
       }
     } else if (result.inningComplete) {
