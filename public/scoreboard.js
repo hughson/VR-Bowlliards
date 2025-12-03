@@ -614,34 +614,38 @@ export class LeaderboardDisplay {
     
     const topScores = leaderboard.getTopScores(5);
     
-    // Adjusted X positions to be more inside (padding)
-    const leftX = 200;
-    const rightX = 824;
-    const centerX = 512;
+    // Adjusted X positions for 4 columns
+    const rankX = 120;
+    const nameX = 350;
+    const scoreX = 620;
+    const avgX = 900;
     
     if (topScores.length === 0) {
       this.ctx.font = '30px Arial';
       this.ctx.fillText('No scores yet. Be the first!', 512, 250);
     } else {
-      this.ctx.font = 'bold 28px Arial';
+      this.ctx.font = 'bold 24px Arial';
       this.ctx.textAlign = 'left';
-      this.ctx.fillText('RANK', leftX, 150);
+      this.ctx.fillText('RANK', rankX, 150);
       this.ctx.textAlign = 'center';
-      this.ctx.fillText('NAME', centerX, 150);
+      this.ctx.fillText('NAME', nameX, 150);
       this.ctx.textAlign = 'right';
-      this.ctx.fillText('SCORE', rightX, 150);
+      this.ctx.fillText('SCORE', scoreX, 150);
+      this.ctx.fillText('POT AVG', avgX, 150);
       
-      this.ctx.font = '24px Arial';
+      this.ctx.font = '22px Arial';
       topScores.forEach((entry, index) => {
-        const y = 210 + index * 60;
-        const name = entry.name || "Player"; 
+        const y = 200 + index * 55;
+        const name = entry.name || "Player";
+        const pottingAvg = entry.pottingAverage != null ? entry.pottingAverage.toFixed(1) : '-';
         
         this.ctx.textAlign = 'left';
-        this.ctx.fillText(`${index + 1}.`, leftX, y);
+        this.ctx.fillText(`${index + 1}.`, rankX, y);
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(name, centerX, y); 
+        this.ctx.fillText(name.length > 12 ? name.substring(0, 12) + '...' : name, nameX, y);
         this.ctx.textAlign = 'right';
-        this.ctx.fillText(entry.score.toString(), rightX, y); 
+        this.ctx.fillText(entry.score.toString(), scoreX, y);
+        this.ctx.fillText(pottingAvg, avgX, y);
       });
     }
     
@@ -774,6 +778,7 @@ export class CyclingLeaderboardDisplay {
     
     this.statTypes = [
       { key: 'highScore', label: 'HIGH SCORE', valueLabel: 'SCORE' },
+      { key: 'pottingAvg', label: 'POTTING AVG', valueLabel: 'AVG' },
       { key: 'avgScore', label: 'AVG SCORE', valueLabel: 'AVG' },
       { key: 'highRun', label: 'HIGH RUN', valueLabel: 'RUN' },
       { key: 'highFrameScore', label: 'HIGH FRAME', valueLabel: 'FRAME' },
@@ -826,6 +831,8 @@ export class CyclingLeaderboardDisplay {
       let data;
       if (statType.key === 'avgScore') {
         data = await this.statsTracker.getAvgScoreLeaderboard(5);
+      } else if (statType.key === 'pottingAvg') {
+        data = await this.statsTracker.getPottingAvgLeaderboard(5);
       } else {
         data = await this.statsTracker.getLeaderboard(statType.key, 5);
       }

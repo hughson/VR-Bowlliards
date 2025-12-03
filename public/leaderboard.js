@@ -52,10 +52,11 @@ export class Leaderboard {
   }
 
   // --- addScore saves to Firebase ---
-  async addScore(score, name) {
+  async addScore(score, name, pottingAverage = null) {
     const entry = {
       score: score,
       name: name, // Add the player's name
+      pottingAverage: pottingAverage, // Add potting average stat
       date: new Date().toISOString()
     };
     

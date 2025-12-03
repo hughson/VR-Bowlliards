@@ -11,7 +11,7 @@ import { Scoreboard, LeaderboardDisplay, PersonalStatsDisplay, CyclingLeaderboar
 import { BallInHand } from './ballInHand.js';
 import { Leaderboard } from './leaderboard.js';
 import { DesktopControls } from './desktopControls.js';
-import { SettingsPanel } from './settingsPanel.js';
+// import { SettingsPanel } from './settingsPanel.js'; // Disabled - settings now in B button menu
 import { SoundManager } from './soundManager.js';
 import { CelebrationSystem } from './celebrationSystem.js';
 import { NetworkManager } from './networkManager.js';
@@ -396,13 +396,15 @@ class VRBowlliardsGame {
     this.leaderboard = new Leaderboard();
     await this.leaderboard.init(); 
     
-    this.settingsPanel = new SettingsPanel(this.scene, {
-        poolTable: this.poolTable,
-        controller1: this.controller1,
-        controller2: this.controller2,
-        getIsVR: () => this.isVR,
-        game: this 
-    });
+    // Settings panel disabled - settings now in B button menu (PlayerMenu)
+    // this.settingsPanel = new SettingsPanel(this.scene, {
+    //     poolTable: this.poolTable,
+    //     controller1: this.controller1,
+    //     controller2: this.controller2,
+    //     getIsVR: () => this.isVR,
+    //     game: this 
+    // });
+    this.settingsPanel = null;
 
     this.ballsSettled = true;
     this.currentInning = 1;
@@ -806,6 +808,7 @@ class VRBowlliardsGame {
     const cueBallHitObject = this.poolTable.cueBallHitObject;
 
     if (this.breakShotTaken && !this.rulesEngine.breakProcessed) {
+      console.log('[GAME] Processing BREAK shot - breakShotTaken:', this.breakShotTaken, 'breakProcessed:', this.rulesEngine.breakProcessed);
       this.rulesEngine.processBreak();
       this.breakShotTaken = false;
       const scratch = cueBallPocketed;
@@ -881,6 +884,9 @@ class VRBowlliardsGame {
       }
 
       if (scratch) {
+        console.log('[GAME] Scratch on break! Balls pocketed:', ballsScored, 'Frame:', this.rulesEngine.currentFrame + 1);
+        console.log('[GAME] Current inning1 score after processShot:', this.rulesEngine.frames[this.rulesEngine.currentFrame].inning1.scored);
+        console.log('[GAME] processShot result:', JSON.stringify(result));
         this.showNotification('Scratch on break! Ball in hand.', 2500);
         this.poolTable.showCueBall();
         this.gameState = 'ballInHand';
@@ -888,6 +894,7 @@ class VRBowlliardsGame {
         if (this.desktopControls) this.desktopControls.orbitControls.enabled = false;
         this.updateScoreboard();
         this.poolTable.resetShotTracking();
+        console.log('[GAME] Scratch on break handled - returning early (NOT advancing frame)');
         return; 
       } 
       if (ballsScored > 0) {
@@ -905,6 +912,7 @@ class VRBowlliardsGame {
       const ballsPocketedOnFoul = pocketedBalls.length;
       console.log(`[FOUL] Scratch! Balls pocketed on foul: ${ballsPocketedOnFoul}`);
       const foulResult = this.rulesEngine.processFoulAfterBreak(ballsPocketedOnFoul);
+      console.log('[FOUL] processFoulAfterBreak result:', JSON.stringify(foulResult));
       
       // Handle scratch during bonus rolls (10th frame)
       if (foulResult.isBonus) {
@@ -983,6 +991,7 @@ class VRBowlliardsGame {
       }
       
       if (foulResult.gameOver) {
+         console.log('[GAME] Scratch triggered game over');
          this.showNotification('Foul, game over!', 2000);
          await this.advanceFrame();
          this.poolTable.resetShotTracking();
@@ -993,6 +1002,17 @@ class VRBowlliardsGame {
          await this.advanceFrame();
          this.poolTable.resetShotTracking();
          return;
+      }
+      // Check for 10th frame inning complete without gameOver flag
+      if (foulResult.inningComplete && foulResult.isTenthFrame) {
+         console.log('[GAME] 10th frame scratch inningComplete but gameOver false - checking manually');
+         if (this.rulesEngine.isGameComplete()) {
+           console.log('[GAME] Manual check: game IS complete');
+           this.showNotification('Scratch, game over!', 2000);
+           await this.advanceFrame();
+           this.poolTable.resetShotTracking();
+           return;
+         }
       }
       this.poolTable.showCueBall();
       this.gameState = 'ballInHand';
@@ -1093,11 +1113,24 @@ class VRBowlliardsGame {
         }
         
         if (foulResult.gameOver) {
+             console.log('[GAME] No-hit foul triggered game over');
              this.showNotification('Foul, game over!', 2000);
              await this.advanceFrame();
         } else if (foulResult.inningComplete && !foulResult.isTenthFrame) {
              this.showNotification('Foul! Open frame.', 2500);
              await this.advanceFrame();
+        } else if (foulResult.inningComplete && foulResult.isTenthFrame) {
+             // 10th frame inning complete but gameOver not set - check manually
+             console.log('[GAME] 10th frame foul inningComplete but gameOver false - checking manually');
+             if (this.rulesEngine.isGameComplete()) {
+               console.log('[GAME] Manual check: game IS complete');
+               this.showNotification('Foul, game over!', 2000);
+               await this.advanceFrame();
+             } else {
+               console.log('[GAME] Manual check: game NOT complete (bonus rolls remaining?)');
+               this.showNotification('Foul! Continue playing.', 2500);
+               this.gameState = 'ready';
+             }
         } else {
              this.showNotification('Foul! Second inning.', 2500);
              this.gameState = 'ready';
@@ -1246,8 +1279,16 @@ class VRBowlliardsGame {
         // Second inning complete
         if (result.isTenthFrame) {
           // In 10th frame, only advance if game is actually over
+          console.log('[GAME] 10th frame second inning complete:', {
+            gameOver: result.gameOver,
+            totalScored: result.totalScored,
+            isGameComplete: this.rulesEngine.isGameComplete(),
+            isMultiplayer: this.isMultiplayer,
+            frame10: JSON.stringify(this.rulesEngine.frames[9])
+          });
           if (result.gameOver) {
             this.showNotification(`10th Frame Complete: ${result.totalScored} total`, 2000);
+            console.log('[GAME] Calling advanceFrame() for 10th frame game over');
             await this.advanceFrame(); // Will handle game completion
             this.poolTable.resetShotTracking();
             return;
@@ -1288,6 +1329,7 @@ class VRBowlliardsGame {
   }
 
   async advanceFrame() {
+    console.log('[GAME] advanceFrame() called - isMultiplayer:', this.isMultiplayer, 'isGameComplete:', this.rulesEngine.isGameComplete());
     if (this.isMultiplayer) {
       console.log("[GAME] =====  FRAME COMPLETE - ADVANCE FRAME =====");
       console.log("[GAME] Current state before advancing:", {
@@ -1357,6 +1399,7 @@ class VRBowlliardsGame {
     }
     if (this.rulesEngine.isGameComplete()) {
       const finalScore = this.rulesEngine.getTotalScore();
+      console.log('[GAME] *** GAME OVER (Single Player) *** Score:', finalScore);
       this.gameState = 'gameOver';
       this.showNotification(`Game Over! Score: ${finalScore}. Press R or click New Game to play again.`, 10000);
       
@@ -1366,7 +1409,8 @@ class VRBowlliardsGame {
       }
       
       let playerName = localStorage.getItem('bowlliards_playerName') || 'Player';
-      await this.leaderboard.addScore(finalScore, playerName);
+      const pottingAverage = this.rulesEngine.getPottingAverage();
+      await this.leaderboard.addScore(finalScore, playerName, pottingAverage);
       
       // Save game to stats tracker if logged in
       if (this.statsTracker && this.statsTracker.isLoggedIn) {

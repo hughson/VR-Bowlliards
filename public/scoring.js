@@ -640,6 +640,14 @@ export class BowlliardsRulesEngine {
     return this.frames.reduce((sum, frame) => sum + frame.score, 0);
   }
 
+  // Calculate potting average (average balls pocketed per break shot)
+  getPottingAverage() {
+    const breaks = this.breakBalls.filter(b => b !== undefined && b !== null);
+    if (breaks.length === 0) return 0;
+    const total = breaks.reduce((sum, b) => sum + b, 0);
+    return total / breaks.length;
+  }
+
   calculateScores() {
     for (let i = 0; i < 10; i++) {
       const frame = this.frames[i];
