@@ -268,6 +268,23 @@ class VRBowlliardsGame {
 
     const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.1)]);
     const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+    
+    // Create laser pointers for menu interaction (initially invisible)
+    const laserGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0), 
+      new THREE.Vector3(0, 0, -3)
+    ]);
+    const laserMaterial = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 });
+    this.laser1 = new THREE.Line(laserGeometry.clone(), laserMaterial.clone());
+    this.laser2 = new THREE.Line(laserGeometry.clone(), laserMaterial.clone());
+    this.laser1.visible = false;
+    this.laser2.visible = false;
+    this.controller1.add(this.laser1);
+    this.controller2.add(this.laser2);
+    // Store references for easy access (both shown/hidden together)
+    this.rightLaser = this.laser1;
+    this.leftLaser = this.laser2;
+    
     const onSelectStart = (controller) => {
       // Either hand's trigger can lock the cue for shooting
       // First check if we're in a state where we can lock
@@ -320,6 +337,16 @@ class VRBowlliardsGame {
     
     // Initialize player menu (VR menu system)
     this.playerMenu = new PlayerMenu(this);
+    
+    // Auto-open menu for first-time players
+    const hasPlayedBefore = localStorage.getItem('bowlliards_hasPlayed');
+    if (!hasPlayedBefore && this.playerMenu) {
+      // Delay slightly to ensure everything is loaded
+      setTimeout(() => {
+        this.playerMenu.open();
+        console.log('[GAME] First-time player detected - opening settings menu');
+      }, 500);
+    }
     
     // Initialize voice chat
     this.voiceChat = new VoiceChat(this);

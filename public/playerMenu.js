@@ -101,6 +101,19 @@ export class PlayerMenu {
     
     this.game.scene.add(this.menuGroup);
     
+    // Create laser pointer for right controller (only visible when menu is open)
+    const laserGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -3)
+    ]);
+    const laserMaterial = new THREE.LineBasicMaterial({ 
+      color: 0x00ff88, 
+      transparent: true,
+      opacity: 0.8
+    });
+    this.laserPointer = new THREE.Line(laserGeometry, laserMaterial);
+    this.laserPointer.visible = false;
+    
     // Keyboard support for desktop testing (C key to toggle menu)
     window.addEventListener('keydown', (e) => {
       if (e.key === 'c' || e.key === 'C') {
@@ -144,7 +157,24 @@ export class PlayerMenu {
         const settings = JSON.parse(saved);
         this.leftHandedMode = settings.leftHandedMode || false;
         this.bowlingStyleActive = settings.bowlingStyleActive || false;
-        this.tableColor = settings.tableColor || 0x40a4c4;
+        
+        // Handle both old format (position value like 0.22) and new format (hex color like 0x40a4c4)
+        const savedColor = settings.tableColor;
+        if (savedColor !== undefined) {
+          if (savedColor < 1) {
+            // Old format - convert position to hex color
+            if (Math.abs(savedColor - 0.15) < 0.05) {
+              this.tableColor = 0xaa0000; // Red
+            } else if (Math.abs(savedColor - 0.29) < 0.05) {
+              this.tableColor = 0xD2B48C; // Tan
+            } else {
+              this.tableColor = 0x40a4c4; // Blue (default)
+            }
+          } else {
+            // New format - use hex color directly
+            this.tableColor = savedColor;
+          }
+        }
       } catch (e) {
         console.error('Failed to load settings:', e);
       }
@@ -347,9 +377,8 @@ export class PlayerMenu {
     ctx.font = '14px "Segoe UI", Arial, sans-serif';
     
     const controls = [
-      { label: 'Trigger', desc: 'Shoot / Confirm' },
+      { label: 'Trigger', desc: 'Locks aim line / Shoot' },
       { label: 'Grip', desc: 'Grab cue ball (when allowed)' },
-      { label: 'A Button', desc: 'Lock stroke direction' },
       { label: 'B Button', desc: 'Open this menu' },
       { label: 'X/A Button', desc: 'Browse leaderboard' },
       { label: 'Y + R-Stick', desc: 'Adjust player height' },
@@ -884,6 +913,10 @@ export class PlayerMenu {
     this.positionMenu();
     this.render();
     
+    // Show laser pointers for menu interaction
+    if (this.game.laser1) this.game.laser1.visible = true;
+    if (this.game.laser2) this.game.laser2.visible = true;
+    
     if (this.game.soundManager) {
       this.game.soundManager.playSound('uiClick', null, 0.3);
     }
@@ -896,6 +929,10 @@ export class PlayerMenu {
     
     this.isOpen = false;
     this.targetScale = 0;
+    
+    // Hide laser pointers
+    if (this.game.laser1) this.game.laser1.visible = false;
+    if (this.game.laser2) this.game.laser2.visible = false;
     
     // Mark player as having played (so menu defaults to MULTIPLAYER tab next time)
     localStorage.setItem('bowlliards_hasPlayed', 'true');
@@ -911,7 +948,8 @@ export class PlayerMenu {
     const session = this.game.renderer.xr.getSession();
     
     if (session) {
-      const leftController = this.game.renderer.xr.getController(1);
+      // Use the game's tracked left hand controller (set by handedness on connection)
+      const leftController = this.game.leftHandController;
       
       if (leftController) {
         const controllerPos = new THREE.Vector3();
@@ -1014,31 +1052,39 @@ export class PlayerMenu {
     const session = this.game.renderer.xr.getSession();
     if (!session) return;
     
-    const controllers = [
-      this.game.renderer.xr.getController(0),
-      this.game.renderer.xr.getController(1)
-    ];
+    // Only use RIGHT hand controller for menu interaction
+    const rightController = this.game.rightHandController;
+    if (!rightController) return;
     
-    for (let i = 0; i < controllers.length; i++) {
-      const controller = controllers[i];
-      if (!controller) continue;
-      
-      const raycaster = new THREE.Raycaster();
-      const tempMatrix = new THREE.Matrix4();
-      tempMatrix.identity().extractRotation(controller.matrixWorld);
-      
-      const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
-      const rayOrigin = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
-      
-      raycaster.set(rayOrigin, rayDir);
-      
-      const intersects = raycaster.intersectObject(this.menuMesh);
-      
-      if (intersects.length > 0) {
-        const uv = intersects[0].uv;
-        if (uv) {
-          this.handlePointer(uv, session.inputSources[i]);
+    const raycaster = new THREE.Raycaster();
+    const tempMatrix = new THREE.Matrix4();
+    tempMatrix.identity().extractRotation(rightController.matrixWorld);
+    
+    const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
+    const rayOrigin = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
+    
+    raycaster.set(rayOrigin, rayDir);
+    
+    const intersects = raycaster.intersectObject(this.menuMesh);
+    
+    if (intersects.length > 0) {
+      const uv = intersects[0].uv;
+      if (uv) {
+        // Find the right hand input source for trigger detection
+        let rightInputSource = null;
+        for (const source of session.inputSources) {
+          if (source.handedness === 'right') {
+            rightInputSource = source;
+            break;
+          }
         }
+        this.handlePointer(uv, rightInputSource);
+      }
+    } else {
+      // Not hovering over menu - clear hover state
+      if (this.hoveredButton !== null) {
+        this.hoveredButton = null;
+        this.render();
       }
     }
   }
