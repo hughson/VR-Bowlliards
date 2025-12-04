@@ -9,6 +9,10 @@ export class NetworkManager {
     this.roomCode = null;
     this.serverUrl = 'https://bowlliards-multiplayer.onrender.com';
     
+    // Avatar update throttling to reduce network traffic and prevent flickering
+    this.lastAvatarUpdateTime = 0;
+    this.avatarUpdateInterval = 50; // Send updates every 50ms (20 times per second) instead of every frame
+    
     // Ghost 1 (cyan) - for opponent or Player 1 when spectating
     this.ghostGroup = new THREE.Group();
     this.ghostHead = null;
@@ -360,6 +364,21 @@ export class NetworkManager {
         this.ghost4Group.visible = false;
       }
     });
+    
+    // CRITICAL FIX: Spectator reassignment (when spectator 1 leaves, spectator 2 becomes spectator 1)
+    this.socket.on('spectatorReassignment', (data) => {
+      console.log('[NETWORK] ===== SPECTATOR REASSIGNMENT =====');
+      console.log('[NETWORK] Old player number:', this.game.myPlayerNumber);
+      console.log('[NETWORK] New spectator number:', data.newSpectatorNumber);
+      
+      // Update player number to match new spectator position
+      // Spectator 1 = myPlayerNumber 3, Spectator 2 = myPlayerNumber 4
+      this.game.myPlayerNumber = 2 + data.newSpectatorNumber;
+      
+      console.log('[NETWORK] New player number:', this.game.myPlayerNumber);
+      console.log('[NETWORK] This prevents seeing your own ghost after another spectator leaves');
+      console.log('[NETWORK] ===== END SPECTATOR REASSIGNMENT =====');
+    });
 
     // NEW: Waiting for opponent in public match
     this.socket.on('waitingForOpponent', (data) => {
@@ -588,8 +607,17 @@ export class NetworkManager {
       if (data.senderNumber === this.game.myPlayerNumber) return;
       
       // Helper function to update a ghost avatar
-      const updateGhost = (ghostGroup, ghostHead, ghostHand1, ghostHand2, ghostNameLabel) => {
-        if (!this.ghostHiddenByUser) ghostGroup.visible = true;
+      // isPlayer: true for players 1&2, false for spectators 3&4
+      // Spectators ignore the ghostHiddenByUser setting
+      const updateGhost = (ghostGroup, ghostHead, ghostHand1, ghostHand2, ghostNameLabel, isPlayer) => {
+        if (isPlayer) {
+          // For players, respect the Hide Opponent setting
+          if (!this.ghostHiddenByUser) ghostGroup.visible = true;
+        } else {
+          // For spectators, always show them (they're additional people, not part of "Hide Opponent")
+          ghostGroup.visible = true;
+        }
+        
         ghostHead.position.set(data.head.x, data.head.y, data.head.z);
         ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
         if (ghostNameLabel) {
@@ -611,16 +639,16 @@ export class NetworkManager {
       // Route to correct ghost based on sender
       if (data.senderNumber === 1) {
         // Player 1 -> Ghost 1 (cyan)
-        updateGhost(this.ghostGroup, this.ghostHead, this.ghostHand1, this.ghostHand2, this.ghostNameLabel);
+        updateGhost(this.ghostGroup, this.ghostHead, this.ghostHand1, this.ghostHand2, this.ghostNameLabel, true);
       } else if (data.senderNumber === 2) {
         // Player 2 -> Ghost 2 (magenta)
-        updateGhost(this.ghost2Group, this.ghost2Head, this.ghost2Hand1, this.ghost2Hand2, this.ghost2NameLabel);
+        updateGhost(this.ghost2Group, this.ghost2Head, this.ghost2Hand1, this.ghost2Hand2, this.ghost2NameLabel, true);
       } else if (data.senderNumber === 3) {
         // Spectator 1 -> Ghost 3 (green)
-        updateGhost(this.ghost3Group, this.ghost3Head, this.ghost3Hand1, this.ghost3Hand2, this.ghost3NameLabel);
+        updateGhost(this.ghost3Group, this.ghost3Head, this.ghost3Hand1, this.ghost3Hand2, this.ghost3NameLabel, false);
       } else if (data.senderNumber === 4) {
         // Spectator 2 -> Ghost 4 (yellow)
-        updateGhost(this.ghost4Group, this.ghost4Head, this.ghost4Hand1, this.ghost4Hand2, this.ghost4NameLabel);
+        updateGhost(this.ghost4Group, this.ghost4Head, this.ghost4Hand1, this.ghost4Hand2, this.ghost4NameLabel, false);
       }
     });
 
@@ -887,6 +915,14 @@ export class NetworkManager {
 
   sendAvatarUpdate() {
     if (!this.isConnected || !this.roomCode) return;
+    
+    // THROTTLE: Only send avatar updates every 50ms (20 times per second) to prevent flickering
+    const now = Date.now();
+    if (now - this.lastAvatarUpdateTime < this.avatarUpdateInterval) {
+      return; // Skip this update if not enough time has passed
+    }
+    this.lastAvatarUpdateTime = now;
+    
     // Allow spectators to send avatar updates so everyone can see them
 
     const headPos = new THREE.Vector3();

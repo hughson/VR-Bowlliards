@@ -942,6 +942,17 @@ io.on('connection', (socket) => {
           spectatorNumber: spectatorNumber, // Which spectator left (1 or 2)
           spectatorCount: room.spectators.length 
         });
+        
+        // CRITICAL FIX: If the spectator who left was spectator 1, reassign spectator 2 to spectator 1
+        // This prevents ghost routing issues where spectators see their own ghosts
+        if (spectatorNumber === 1 && room.spectators.length === 1) {
+          // The remaining spectator (who was spectator 2) is now spectator 1
+          const remainingSpectatorId = room.spectators[0];
+          console.log(`Reassigning remaining spectator ${remainingSpectatorId} from #2 to #1`);
+          io.to(remainingSpectatorId).emit('spectatorReassignment', {
+            newSpectatorNumber: 1 // They are now spectator 1 (index 0)
+          });
+        }
       }
       
       // Delete room if empty (no players AND no spectators)
