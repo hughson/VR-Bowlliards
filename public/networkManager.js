@@ -428,6 +428,18 @@ export class NetworkManager {
 
     // Opponent avatar movement
     this.socket.on('opponentMoved', (data) => {
+      // Ignore spectator avatar updates
+      if (data.senderType === 'spectator') return;
+      
+      // For players: only show avatar of their actual opponent
+      // If I'm player 1, only show player 2's avatar (senderNumber 2)
+      // If I'm player 2, only show player 1's avatar (senderNumber 1)
+      if (!this.game.isSpectator) {
+        const myOpponentNumber = this.game.myPlayerNumber === 1 ? 2 : 1;
+        if (data.senderNumber !== myOpponentNumber) return;
+      }
+      // For spectators: show the first player's avatar we receive (could be enhanced later to show both)
+      
       // Only show ghost if user hasn't hidden it
       if (!this.ghostHiddenByUser) {
         this.ghostGroup.visible = true;
@@ -720,6 +732,7 @@ export class NetworkManager {
 
   sendAvatarUpdate() {
     if (!this.isConnected || !this.roomCode) return;
+    if (this.game.isSpectator) return;  // Spectators don't send avatar updates
 
     const headPos = new THREE.Vector3();
     const headQuat = new THREE.Quaternion();

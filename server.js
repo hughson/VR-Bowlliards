@@ -631,19 +631,28 @@ io.on('connection', (socket) => {
   });
   
   function handleJoinRoom(socket, roomCode, playerName = 'Player') {
-    socket.join(roomCode);
-    
     // Get or create room data
     if (!rooms.has(roomCode)) {
       rooms.set(roomCode, { player1: null, player2: null, spectators: [], spectatorNames: [], currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
     }
     
     const room = rooms.get(roomCode);
+    
+    // Check if room is full BEFORE joining
+    if (room.player1 && room.player2 && room.spectators.length >= 2) {
+      console.log(`User ${socket.id} tried to join FULL room ${roomCode} (2 players + 2 spectators)`);
+      socket.emit('roomFull');
+      return;
+    }
+    
+    // Now safe to join the socket room
+    socket.join(roomCode);
+    
     let playerNumber = null;
     let isSpectator = false;
     
     // Assign player number based on who joined first
-    // First 2 are players, next 2 are spectators, after that room is full
+    // First 2 are players, next 2 are spectators
     if (!room.player1) {
       room.player1 = socket.id;
       room.player1Name = playerName;
@@ -660,10 +669,6 @@ io.on('connection', (socket) => {
       room.spectatorNames.push(playerName);
       isSpectator = true;
       console.log(`User ${socket.id} (${playerName}) joined room ${roomCode} as SPECTATOR ${room.spectators.length}`);
-    } else {
-      console.log(`User ${socket.id} tried to join FULL room ${roomCode} (2 players + 2 spectators)`);
-      socket.emit('roomFull');
-      return;
     }
     
     // Send assignment to the joining player
@@ -737,6 +742,26 @@ io.on('connection', (socket) => {
   } // End handleJoinRoom function
 
   socket.on('updateAvatar', (data) => {
+    const room = rooms.get(data.roomCode);
+    if (!room) return;
+    
+    // Determine who is sending this update
+    let senderType = 'spectator';
+    let senderNumber = 0;
+    
+    if (room.player1 === socket.id) {
+      senderType = 'player';
+      senderNumber = 1;
+    } else if (room.player2 === socket.id) {
+      senderType = 'player';
+      senderNumber = 2;
+    }
+    
+    // Add sender info to the data
+    data.senderType = senderType;
+    data.senderNumber = senderNumber;
+    
+    // Broadcast to room (client will filter based on sender)
     socket.to(data.roomCode).emit('opponentMoved', data);
   });
 
