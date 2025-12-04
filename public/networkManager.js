@@ -131,23 +131,6 @@ export class NetworkManager {
     return sprite;
   }
 
-  updateGhostNameLabel(oldLabel, ghostGroup, newName, color) {
-    // Remove old label from group
-    if (oldLabel) {
-      ghostGroup.remove(oldLabel);
-      if (oldLabel.material && oldLabel.material.map) {
-        oldLabel.material.map.dispose();
-      }
-      if (oldLabel.material) {
-        oldLabel.material.dispose();
-      }
-    }
-    // Create new label with updated name
-    const newLabel = this.createNameLabel(newName, false, color);
-    ghostGroup.add(newLabel);
-    return newLabel;
-  }
-
   initLocalNameLabel() {
     // Create name label for local player using actual player name (green)
     const playerName = this.game.myPlayerName || 'Player';
@@ -178,6 +161,24 @@ export class NetworkManager {
       this.ghostNameLabel = this.createNameLabel(opponentName, false);
       this.ghostGroup.add(this.ghostNameLabel);
     }
+  }
+
+  // For spectators: update any ghost's name label with custom color
+  updateSpectatorGhostLabel(oldLabel, ghostGroup, newName, color) {
+    // Remove old label from group
+    if (oldLabel) {
+      ghostGroup.remove(oldLabel);
+      if (oldLabel.material && oldLabel.material.map) {
+        oldLabel.material.map.dispose();
+      }
+      if (oldLabel.material) {
+        oldLabel.material.dispose();
+      }
+    }
+    // Create new label with updated name
+    const newLabel = this.createNameLabel(newName, false, color);
+    ghostGroup.add(newLabel);
+    return newLabel;
   }
 
   updateMyNameLabel(newName) {
@@ -258,8 +259,8 @@ export class NetworkManager {
       this.roomCode = data.roomCode;
       
       // Update ghost name labels with actual player names
-      this.ghostNameLabel = this.updateGhostNameLabel(this.ghostNameLabel, this.ghostGroup, data.player1Name || 'Player 1', 0x00ffff);
-      this.ghost2NameLabel = this.updateGhostNameLabel(this.ghost2NameLabel, this.ghost2Group, data.player2Name || 'Player 2', 0xff00ff);
+      this.ghostNameLabel = this.updateSpectatorGhostLabel(this.ghostNameLabel, this.ghostGroup, data.player1Name || 'Player 1', 0x00ffff);
+      this.ghost2NameLabel = this.updateSpectatorGhostLabel(this.ghost2NameLabel, this.ghost2Group, data.player2Name || 'Player 2', 0xff00ff);
       
       this.game.showNotification(`Watching: ${data.player1Name || 'Player 1'} vs ${data.player2Name || 'Player 2'}`, 5000);
       console.log('[NETWORK] ===== END SPECTATOR ASSIGNMENT =====');
@@ -500,7 +501,10 @@ export class NetworkManager {
           if (!this.ghostHiddenByUser) this.ghostGroup.visible = true;
           this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
           this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-          if (this.ghostNameLabel) this.ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
+          if (this.ghostNameLabel) {
+            this.ghostNameLabel.visible = true;
+            this.ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
+          }
           if (data.hand1) {
             this.ghostHand1.visible = true;
             this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
@@ -516,7 +520,10 @@ export class NetworkManager {
           if (!this.ghostHiddenByUser) this.ghost2Group.visible = true;
           this.ghost2Head.position.set(data.head.x, data.head.y, data.head.z);
           this.ghost2Head.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-          if (this.ghost2NameLabel) this.ghost2NameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
+          if (this.ghost2NameLabel) {
+            this.ghost2NameLabel.visible = true;
+            this.ghost2NameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
+          }
           if (data.hand1) {
             this.ghost2Hand1.visible = true;
             this.ghost2Hand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
