@@ -526,6 +526,14 @@ export class PlayerMenu {
     
     this.renderToggleButton(ctx, x + w - 100, y, 90, 40, !this.localPlayerMuted, 'selfMute');
     
+    // Your Avatar section
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+    ctx.fillText('👤 Your Avatar', x, y + 75);
+    
+    const myAvatarVisible = this.game.networkManager ? !this.game.networkManager.myAvatarHidden : true;
+    this.renderToggleButton(ctx, x + w - 100, y + 50, 90, 40, myAvatarVisible, 'myAvatar');
+    
     // Voice connection status
     const voiceChat = this.game.voiceChat;
     const isConnected = voiceChat && voiceChat.isConnected;
@@ -544,21 +552,21 @@ export class PlayerMenu {
     
     ctx.fillStyle = statusColor;
     ctx.font = '16px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(statusText, x, y + 60);
+    ctx.fillText(statusText, x, y + 115);
     
     // Connect button
-    this.renderConnectButton(ctx, x + w - 130, y + 45, 120, 35);
+    this.renderConnectButton(ctx, x + w - 130, y + 100, 120, 35);
     
     // Divider
-    this.renderDivider(ctx, x, y + 95, w);
+    this.renderDivider(ctx, x, y + 150, w);
     
     // Players section
     ctx.fillStyle = '#888888';
     ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('PLAYERS IN ROOM', x, y + 125);
+    ctx.fillText('PLAYERS IN ROOM', x, y + 180);
     
     // Player list
-    this.renderPlayerList(ctx, x, y + 145, w);
+    this.renderPlayerList(ctx, x, y + 200, w);
   }
   
   renderConnectButton(ctx, x, y, w, h) {
@@ -622,12 +630,17 @@ export class PlayerMenu {
       ctx.lineWidth = 1;
       ctx.stroke();
       
-      // Player avatar circle
+      // Player avatar circle - different color for spectators
       ctx.beginPath();
       ctx.arc(x + 30, rowY + 30, 18, 0, Math.PI * 2);
       const avatarGradient = ctx.createRadialGradient(x + 30, rowY + 25, 0, x + 30, rowY + 30, 18);
-      avatarGradient.addColorStop(0, '#4488ff');
-      avatarGradient.addColorStop(1, '#2255aa');
+      if (player.isSpectator) {
+        avatarGradient.addColorStop(0, '#88aa44');
+        avatarGradient.addColorStop(1, '#557722');
+      } else {
+        avatarGradient.addColorStop(0, '#4488ff');
+        avatarGradient.addColorStop(1, '#2255aa');
+      }
       ctx.fillStyle = avatarGradient;
       ctx.fill();
       
@@ -644,11 +657,12 @@ export class PlayerMenu {
       const displayName = player.name.length > 10 ? player.name.substring(0, 10) + '...' : player.name;
       ctx.fillText(displayName, x + 55, rowY + 28);
       
-      // Status
+      // Status - show role (Player/Spectator) and mute status
       ctx.fillStyle = '#888888';
       ctx.font = '12px "Segoe UI", Arial, sans-serif';
-      const status = player.isMuted ? 'Muted' : 'Connected';
-      ctx.fillText(status, x + 55, rowY + 45);
+      const roleText = player.isSpectator ? '👁 Spectating' : '🎮 Player';
+      const muteText = player.isMuted ? ' • Muted' : '';
+      ctx.fillText(roleText + muteText, x + 55, rowY + 45);
       
       // Mute button
       this.renderIconButton(ctx, x + w - 100, rowY + 10, 40, 40, '🔊', '🔇', !player.isMuted, `mute_${player.id}`);
@@ -835,28 +849,39 @@ export class PlayerMenu {
       this.localPlayerMuted = this.game.voiceChat.isLocalMuted();
     }
     
+    // Add local player (yourself)
     players.push({
       id: 'local',
+      playerNumber: this.game.myPlayerNumber || 0,
       name: this.game.myPlayerName || 'You',
       isMuted: this.localPlayerMuted,
       isHidden: false,
-      isLocal: true
+      isLocal: true,
+      isSpectator: this.game.isSpectator || false
     });
     
+    // Add all connected remote players from networkManager
     if (this.game.networkManager && this.game.isMultiplayer) {
-      const remoteName = this.game.remotePlayerName || 'Opponent';
-      const remoteState = this.players.get('remote') || { isMuted: false, isHidden: false };
+      const connectedPlayers = this.game.networkManager.getConnectedPlayers();
       
-      if (this.game.voiceChat) {
-        remoteState.isMuted = this.game.voiceChat.isRemoteMuted();
-      }
-      
-      players.push({
-        id: 'remote',
-        name: remoteName,
-        isMuted: remoteState.isMuted,
-        isHidden: remoteState.isHidden,
-        isLocal: false
+      connectedPlayers.forEach((playerInfo, playerNumber) => {
+        // Skip yourself
+        if (playerNumber === this.game.myPlayerNumber) return;
+        
+        const state = this.players.get(`player_${playerNumber}`) || { isMuted: false, isHidden: false };
+        
+        // Check if this player's ghost is hidden
+        state.isHidden = this.game.networkManager.isPlayerGhostHidden(playerNumber);
+        
+        players.push({
+          id: `player_${playerNumber}`,
+          playerNumber: playerNumber,
+          name: playerInfo.name,
+          isMuted: state.isMuted,
+          isHidden: state.isHidden,
+          isLocal: false,
+          isSpectator: playerInfo.isSpectator
+        });
       });
     }
     
@@ -884,8 +909,14 @@ export class PlayerMenu {
     const state = this.players.get(playerId) || { isMuted: false, isHidden: false };
     state.isHidden = hidden;
     this.players.set(playerId, state);
+    
     if (this.game.networkManager) {
-      this.game.networkManager.setGhostVisible(!hidden);
+      // Extract player number from playerId (format: "player_1", "player_2", etc.)
+      const match = playerId.match(/player_(\d+)/);
+      if (match) {
+        const playerNumber = parseInt(match[1]);
+        this.game.networkManager.setPlayerGhostVisible(playerNumber, !hidden);
+      }
     }
     this.render();
   }
