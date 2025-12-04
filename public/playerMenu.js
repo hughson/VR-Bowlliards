@@ -930,9 +930,15 @@ export class PlayerMenu {
     this.isOpen = false;
     this.targetScale = 0;
     
-    // Hide laser pointers
-    if (this.game.laser1) this.game.laser1.visible = false;
-    if (this.game.laser2) this.game.laser2.visible = false;
+    // Hide laser pointers and reset their length
+    if (this.game.laser1) {
+      this.game.laser1.visible = false;
+      this.resetLaserLength(this.game.laser1);
+    }
+    if (this.game.laser2) {
+      this.game.laser2.visible = false;
+      this.resetLaserLength(this.game.laser2);
+    }
     
     // Mark player as having played (so menu defaults to MULTIPLAYER tab next time)
     localStorage.setItem('bowlliards_hasPlayed', 'true');
@@ -942,6 +948,14 @@ export class PlayerMenu {
     }
     
     console.log('[MENU] Menu closed');
+  }
+  
+  resetLaserLength(laser) {
+    if (!laser) return;
+    const positions = laser.geometry.attributes.position.array;
+    positions[5] = -3; // Reset to full length
+    laser.geometry.attributes.position.needsUpdate = true;
+    laser.material.color.setHex(0x00ffff); // Reset to cyan
   }
   
   positionMenu() {
@@ -1067,6 +1081,9 @@ export class PlayerMenu {
     
     const intersects = raycaster.intersectObject(this.menuMesh);
     
+    // Update laser length based on intersection
+    this.updateLaserLength(rightController, intersects.length > 0 ? intersects[0].distance : null);
+    
     if (intersects.length > 0) {
       const uv = intersects[0].uv;
       if (uv) {
@@ -1086,6 +1103,32 @@ export class PlayerMenu {
         this.hoveredButton = null;
         this.render();
       }
+    }
+  }
+  
+  updateLaserLength(controller, hitDistance) {
+    // Find which laser belongs to this controller
+    let laser = null;
+    if (controller === this.game.controller1) {
+      laser = this.game.laser1;
+    } else if (controller === this.game.controller2) {
+      laser = this.game.laser2;
+    }
+    
+    if (!laser) return;
+    
+    // Set laser length: stop at menu if hitting, otherwise full length
+    const length = hitDistance !== null ? hitDistance : 3;
+    
+    const positions = laser.geometry.attributes.position.array;
+    positions[5] = -length; // Z coordinate of end point
+    laser.geometry.attributes.position.needsUpdate = true;
+    
+    // Change color when hitting menu
+    if (hitDistance !== null) {
+      laser.material.color.setHex(0x00ff88); // Green when hitting menu
+    } else {
+      laser.material.color.setHex(0x00ffff); // Cyan when not hitting
     }
   }
 

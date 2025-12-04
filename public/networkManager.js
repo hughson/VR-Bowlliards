@@ -185,7 +185,34 @@ export class NetworkManager {
     // Room is full - cannot join
     this.socket.on('roomFull', () => {
       console.log('[NETWORK] Room is full!');
-      this.game.showNotification('Room is full! Only 2 players allowed.', 5000);
+      this.game.showNotification('Room is full! Max 2 players + 2 spectators.', 5000);
+    });
+
+    // NEW: Spectator mode assignment
+    this.socket.on('spectatorAssignment', (data) => {
+      console.log('[NETWORK] ===== SPECTATOR ASSIGNMENT =====');
+      console.log('[NETWORK] Assigned as Spectator', data.spectatorNumber);
+      console.log('[NETWORK] Room Code:', data.roomCode);
+      console.log('[NETWORK] Players:', data.player1Name, 'vs', data.player2Name);
+      
+      this.game.isSpectator = true;
+      this.game.myPlayerNumber = 0; // Spectators are player 0
+      this.roomCode = data.roomCode;
+      
+      this.game.showNotification(`Watching: ${data.player1Name || 'Player 1'} vs ${data.player2Name || 'Player 2'}`, 5000);
+      console.log('[NETWORK] ===== END SPECTATOR ASSIGNMENT =====');
+    });
+    
+    // Spectator joined notification
+    this.socket.on('spectatorJoined', (data) => {
+      console.log('[NETWORK] Spectator joined:', data.spectatorName);
+      this.game.showNotification(`${data.spectatorName} is now spectating (${data.spectatorCount}/2)`, 3000);
+    });
+    
+    // Spectator left notification
+    this.socket.on('spectatorLeft', (data) => {
+      console.log('[NETWORK] Spectator left:', data.spectatorName);
+      this.game.showNotification(`${data.spectatorName} stopped spectating`, 2000);
     });
 
     // NEW: Waiting for opponent in public match
@@ -260,6 +287,40 @@ export class NetworkManager {
       console.log('[NETWORK] Both players connected!');
       console.log('[NETWORK] Player 1:', data.player1, data.player1Name);
       console.log('[NETWORK] Player 2:', data.player2, data.player2Name);
+      
+      // Check if this is a spectator joining an in-progress game
+      const isSpectator = data.isSpectator || this.game.isSpectator;
+      
+      if (isSpectator) {
+        console.log('[NETWORK] Joining as SPECTATOR');
+        this.game.isSpectator = true;
+        this.game.isMultiplayer = true;
+        this.game.gameStarted = true;
+        
+        // Hide the cue for spectators
+        if (this.game.cueController && this.game.cueController.cueMesh) {
+          this.game.cueController.cueMesh.visible = false;
+        }
+        
+        // Setup multiplayer scoreboard for spectators too
+        if (this.game.scoreboard && this.game.scoreboard.mode !== 'multi') {
+          this.game.scoreboard.setupBoard('multi');
+        }
+        
+        // Ensure remote rules engine exists
+        if (!this.game.remoteRulesEngine) {
+          this.game.remoteRulesEngine = new BowlliardsRulesEngine();
+        }
+        
+        // Hide overlays
+        if (window.hideAllOverlays) {
+          window.hideAllOverlays();
+        }
+        
+        this.game.showNotification(`Spectating: ${data.player1Name} vs ${data.player2Name}`, 4000);
+        console.log('[NETWORK] ===== END GAME READY (SPECTATOR) =====');
+        return;
+      }
       
       // Store opponent's name
       if (this.game.myPlayerNumber === 1) {

@@ -544,7 +544,7 @@ const io = new Server(server, {
 });
 
 // Track rooms and player assignments
-const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, currentTurn: 1 or 2, player1Name: string, player2Name: string, newGameRequests: Set }
+const rooms = new Map(); // roomCode -> { player1: socketId, player2: socketId, spectators: [], spectatorNames: [], currentTurn: 1 or 2, player1Name: string, player2Name: string, newGameRequests: Set }
 
 // Track available public rooms for matchmaking
 const publicRooms = new Map(); // roomCode -> { player1: socketId, createdAt: timestamp }
@@ -593,7 +593,7 @@ io.on('connection', (socket) => {
       });
       
       // Initialize room
-      rooms.set(newRoomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
+      rooms.set(newRoomCode, { player1: null, player2: null, spectators: [], spectatorNames: [], currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
       
       socket.emit('joinRoom', newRoomCode); // Trigger normal join flow
       handleJoinRoom(socket, newRoomCode, playerName);
@@ -635,13 +635,15 @@ io.on('connection', (socket) => {
     
     // Get or create room data
     if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, { player1: null, player2: null, currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
+      rooms.set(roomCode, { player1: null, player2: null, spectators: [], spectatorNames: [], currentTurn: 1, player1Name: null, player2Name: null, newGameRequests: new Set() });
     }
     
     const room = rooms.get(roomCode);
     let playerNumber = null;
+    let isSpectator = false;
     
     // Assign player number based on who joined first
+    // First 2 are players, next 2 are spectators, after that room is full
     if (!room.player1) {
       room.player1 = socket.id;
       room.player1Name = playerName;
@@ -652,27 +654,63 @@ io.on('connection', (socket) => {
       room.player2Name = playerName;
       playerNumber = 2;
       console.log(`User ${socket.id} (${playerName}) joined room ${roomCode} as PLAYER 2 (GUEST)`);
+    } else if (room.spectators.length < 2) {
+      // Add as spectator (max 2 spectators)
+      room.spectators.push(socket.id);
+      room.spectatorNames.push(playerName);
+      isSpectator = true;
+      console.log(`User ${socket.id} (${playerName}) joined room ${roomCode} as SPECTATOR ${room.spectators.length}`);
     } else {
-      console.log(`User ${socket.id} tried to join FULL room ${roomCode}`);
+      console.log(`User ${socket.id} tried to join FULL room ${roomCode} (2 players + 2 spectators)`);
       socket.emit('roomFull');
       return;
     }
     
-    // Send player assignment to the joining player
-    socket.emit('playerAssignment', { 
-      playerNumber: playerNumber,
-      roomCode: roomCode 
-    });
-    
-    // Notify the other player about the new player (including their name)
-    socket.to(roomCode).emit('playerJoined', { 
-      socketId: socket.id,
-      playerNumber: playerNumber,
-      playerName: playerName
-    });
+    // Send assignment to the joining player
+    if (isSpectator) {
+      socket.emit('spectatorAssignment', { 
+        roomCode: roomCode,
+        spectatorNumber: room.spectators.length,
+        player1Name: room.player1Name,
+        player2Name: room.player2Name
+      });
+      
+      // Notify everyone in room about new spectator
+      socket.to(roomCode).emit('spectatorJoined', { 
+        socketId: socket.id,
+        spectatorName: playerName,
+        spectatorCount: room.spectators.length
+      });
+      
+      // If game is already in progress, send current state to spectator
+      if (room.player1 && room.player2) {
+        socket.emit('gameReady', {
+          player1: room.player1,
+          player2: room.player2,
+          player1Name: room.player1Name,
+          player2Name: room.player2Name,
+          currentTurn: room.currentTurn,
+          isSpectator: true
+        });
+      }
+    } else {
+      // Send player assignment to the joining player
+      socket.emit('playerAssignment', { 
+        playerNumber: playerNumber,
+        roomCode: roomCode 
+      });
+      
+      // Notify others about the new player (including their name)
+      socket.to(roomCode).emit('playerJoined', { 
+        socketId: socket.id,
+        playerNumber: playerNumber,
+        playerName: playerName
+      });
+    }
     
     // If both players are now in the room, start the game
-    if (room.player1 && room.player2) {
+    if (room.player1 && room.player2 && !isSpectator) {
+      // Only emit gameReady when player 2 joins (not spectators)
       // Initialize turn to player 1
       room.currentTurn = 1;
       
@@ -859,10 +897,21 @@ io.on('connection', (socket) => {
         console.log(`Player 2 left room ${roomCode}`);
         room.player2 = null;
         socket.to(roomCode).emit('opponentLeft', { playerNumber: 2 });
+      } else if (room.spectators && room.spectators.includes(socket.id)) {
+        // Remove spectator
+        const spectatorIndex = room.spectators.indexOf(socket.id);
+        const spectatorName = room.spectatorNames[spectatorIndex];
+        room.spectators.splice(spectatorIndex, 1);
+        room.spectatorNames.splice(spectatorIndex, 1);
+        console.log(`Spectator ${spectatorName} left room ${roomCode}`);
+        socket.to(roomCode).emit('spectatorLeft', { 
+          spectatorName: spectatorName,
+          spectatorCount: room.spectators.length 
+        });
       }
       
-      // Delete room if empty
-      if (!room.player1 && !room.player2) {
+      // Delete room if empty (no players AND no spectators)
+      if (!room.player1 && !room.player2 && (!room.spectators || room.spectators.length === 0)) {
         console.log(`Room ${roomCode} is empty - deleting`);
         rooms.delete(roomCode);
       }

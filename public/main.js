@@ -59,6 +59,7 @@ class VRBowlliardsGame {
     
     // Multiplayer Defaults
     this.isMultiplayer = false;
+    this.isSpectator = false;  // True when watching as a spectator
     this.isMyTurn = true;  
     this.myPlayerNumber = 1; 
     this.myPlayerName = "Player";
@@ -286,6 +287,9 @@ class VRBowlliardsGame {
     this.leftLaser = this.laser2;
     
     const onSelectStart = (controller) => {
+      // Spectators cannot shoot
+      if (this.isSpectator) return;
+      
       // Either hand's trigger can lock the cue for shooting
       // First check if we're in a state where we can lock
       if (this.gameState !== 'ballInHand' && this.gameState !== 'gameOver' && this.ballsSettled) {
@@ -663,6 +667,7 @@ class VRBowlliardsGame {
 
   onBallInHandStart(controllerIndex) {
     if (!this.isVR) return;
+    if (this.isSpectator) return;  // Spectators cannot grab balls
     if (this.isMultiplayer && !this.isMyTurn) return;
     const canGrab = this.gameState === 'ballInHand' || this.ballInHand.enabled;
     if (!canGrab) return;
