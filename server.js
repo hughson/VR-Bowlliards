@@ -755,6 +755,13 @@ io.on('connection', (socket) => {
     } else if (room.player2 === socket.id) {
       senderType = 'player';
       senderNumber = 2;
+    } else {
+      // Check which spectator this is (spectator 1 = senderNumber 3, spectator 2 = senderNumber 4)
+      const spectatorIndex = room.spectators.indexOf(socket.id);
+      if (spectatorIndex !== -1) {
+        senderType = 'spectator';
+        senderNumber = 3 + spectatorIndex; // Spectator 1 = 3, Spectator 2 = 4
+      }
     }
     
     // Add sender info to the data
@@ -926,11 +933,13 @@ io.on('connection', (socket) => {
         // Remove spectator
         const spectatorIndex = room.spectators.indexOf(socket.id);
         const spectatorName = room.spectatorNames[spectatorIndex];
+        const spectatorNumber = spectatorIndex + 1; // 1-based: spectator 1 or spectator 2
         room.spectators.splice(spectatorIndex, 1);
         room.spectatorNames.splice(spectatorIndex, 1);
-        console.log(`Spectator ${spectatorName} left room ${roomCode}`);
+        console.log(`Spectator ${spectatorNumber} (${spectatorName}) left room ${roomCode}`);
         socket.to(roomCode).emit('spectatorLeft', { 
           spectatorName: spectatorName,
+          spectatorNumber: spectatorNumber, // Which spectator left (1 or 2)
           spectatorCount: room.spectators.length 
         });
       }

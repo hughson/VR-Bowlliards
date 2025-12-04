@@ -24,10 +24,26 @@ export class NetworkManager {
     this.ghost2Hand2 = null;
     this.ghost2NameLabel = null;
     
+    // Ghost 3 (green) - for Spectator 1
+    this.ghost3Group = new THREE.Group();
+    this.ghost3Head = null;
+    this.ghost3Hand1 = null;
+    this.ghost3Hand2 = null;
+    this.ghost3NameLabel = null;
+    
+    // Ghost 4 (yellow) - for Spectator 2
+    this.ghost4Group = new THREE.Group();
+    this.ghost4Head = null;
+    this.ghost4Hand1 = null;
+    this.ghost4Hand2 = null;
+    this.ghost4NameLabel = null;
+    
     this.localNameLabel = null;
     
     this.initGhost();
     this.initGhost2();
+    this.initGhost3();
+    this.initGhost4();
     this.initLocalNameLabel();
   }
 
@@ -80,6 +96,58 @@ export class NetworkManager {
 
     this.ghost2Group.visible = false;
     this.game.scene.add(this.ghost2Group);
+  }
+
+  initGhost3() {
+    // Third ghost (green) for Spectator 1
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x00ff00,  // Green for Spectator 1
+      transparent: true,
+      opacity: 0.4
+    });
+
+    const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
+    this.ghost3Head = new THREE.Mesh(headGeo, material);
+    this.ghost3Group.add(this.ghost3Head);
+
+    const handGeo = new THREE.BoxGeometry(0.05, 0.08, 0.12);
+    this.ghost3Hand1 = new THREE.Mesh(handGeo, material);
+    this.ghost3Hand2 = new THREE.Mesh(handGeo, material);
+    this.ghost3Group.add(this.ghost3Hand1);
+    this.ghost3Group.add(this.ghost3Hand2);
+
+    // Create name label for Spectator 1 (green color)
+    this.ghost3NameLabel = this.createNameLabel('Spectator 1', false, 0x00ff00);
+    this.ghost3Group.add(this.ghost3NameLabel);
+
+    this.ghost3Group.visible = false;
+    this.game.scene.add(this.ghost3Group);
+  }
+
+  initGhost4() {
+    // Fourth ghost (yellow) for Spectator 2
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffff00,  // Yellow for Spectator 2
+      transparent: true,
+      opacity: 0.4
+    });
+
+    const headGeo = new THREE.SphereGeometry(0.12, 16, 16);
+    this.ghost4Head = new THREE.Mesh(headGeo, material);
+    this.ghost4Group.add(this.ghost4Head);
+
+    const handGeo = new THREE.BoxGeometry(0.05, 0.08, 0.12);
+    this.ghost4Hand1 = new THREE.Mesh(handGeo, material);
+    this.ghost4Hand2 = new THREE.Mesh(handGeo, material);
+    this.ghost4Group.add(this.ghost4Hand1);
+    this.ghost4Group.add(this.ghost4Hand2);
+
+    // Create name label for Spectator 2 (yellow color)
+    this.ghost4NameLabel = this.createNameLabel('Spectator 2', false, 0xffff00);
+    this.ghost4Group.add(this.ghost4NameLabel);
+
+    this.ghost4Group.visible = false;
+    this.game.scene.add(this.ghost4Group);
   }
 
   createNameLabel(text, isLocal = false, customColor = null) {
@@ -255,7 +323,8 @@ export class NetworkManager {
       console.log('[NETWORK] Players:', data.player1Name, 'vs', data.player2Name);
       
       this.game.isSpectator = true;
-      this.game.myPlayerNumber = 0; // Spectators are player 0
+      // Spectators get unique numbers: spectator 1 = 3, spectator 2 = 4
+      this.game.myPlayerNumber = 2 + data.spectatorNumber;
       this.roomCode = data.roomCode;
       
       // Update ghost name labels with actual player names
@@ -268,14 +337,28 @@ export class NetworkManager {
     
     // Spectator joined notification
     this.socket.on('spectatorJoined', (data) => {
-      console.log('[NETWORK] Spectator joined:', data.spectatorName);
+      console.log('[NETWORK] Spectator joined:', data.spectatorName, 'as spectator', data.spectatorCount);
       this.game.showNotification(`${data.spectatorName} is now spectating (${data.spectatorCount}/2)`, 3000);
+      
+      // Update the spectator ghost label with their name
+      if (data.spectatorCount === 1) {
+        this.ghost3NameLabel = this.updateSpectatorGhostLabel(this.ghost3NameLabel, this.ghost3Group, data.spectatorName || 'Spectator 1', 0x00ff00);
+      } else if (data.spectatorCount === 2) {
+        this.ghost4NameLabel = this.updateSpectatorGhostLabel(this.ghost4NameLabel, this.ghost4Group, data.spectatorName || 'Spectator 2', 0xffff00);
+      }
     });
     
     // Spectator left notification
     this.socket.on('spectatorLeft', (data) => {
-      console.log('[NETWORK] Spectator left:', data.spectatorName);
+      console.log('[NETWORK] Spectator', data.spectatorNumber, '(' + data.spectatorName + ') left');
       this.game.showNotification(`${data.spectatorName} stopped spectating`, 2000);
+      
+      // Hide the spectator ghost
+      if (data.spectatorNumber === 1) {
+        this.ghost3Group.visible = false;
+      } else if (data.spectatorNumber === 2) {
+        this.ghost4Group.visible = false;
+      }
     });
 
     // NEW: Waiting for opponent in public match
@@ -487,89 +570,57 @@ export class NetworkManager {
       console.log('[NETWORK] Opponent left (Player', data.playerNumber, ')');
       this.game.showNotification('Opponent disconnected!', 5000);
       this.game.isMultiplayer = false;
+      
+      // Hide the player's ghost
+      if (data.playerNumber === 1) {
+        this.ghostGroup.visible = false;
+      } else if (data.playerNumber === 2) {
+        this.ghost2Group.visible = false;
+      }
     });
 
     // Opponent avatar movement
     this.socket.on('opponentMoved', (data) => {
-      // Ignore spectator avatar updates
-      if (data.senderType === 'spectator') return;
+      // Route avatar update to the correct ghost based on senderNumber
+      // senderNumber: 1 = Player 1, 2 = Player 2, 3 = Spectator 1, 4 = Spectator 2
       
-      // SPECTATOR MODE: Show both players using separate ghosts
-      if (this.game.isSpectator) {
-        if (data.senderNumber === 1) {
-          // Player 1 -> Ghost 1 (cyan)
-          if (!this.ghostHiddenByUser) this.ghostGroup.visible = true;
-          this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
-          this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-          if (this.ghostNameLabel) {
-            this.ghostNameLabel.visible = true;
-            this.ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
-          }
-          if (data.hand1) {
-            this.ghostHand1.visible = true;
-            this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-            this.ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
-          } else this.ghostHand1.visible = false;
-          if (data.hand2) {
-            this.ghostHand2.visible = true;
-            this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-            this.ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
-          } else this.ghostHand2.visible = false;
-        } else if (data.senderNumber === 2) {
-          // Player 2 -> Ghost 2 (magenta)
-          if (!this.ghostHiddenByUser) this.ghost2Group.visible = true;
-          this.ghost2Head.position.set(data.head.x, data.head.y, data.head.z);
-          this.ghost2Head.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-          if (this.ghost2NameLabel) {
-            this.ghost2NameLabel.visible = true;
-            this.ghost2NameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
-          }
-          if (data.hand1) {
-            this.ghost2Hand1.visible = true;
-            this.ghost2Hand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-            this.ghost2Hand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
-          } else this.ghost2Hand1.visible = false;
-          if (data.hand2) {
-            this.ghost2Hand2.visible = true;
-            this.ghost2Hand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-            this.ghost2Hand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
-          } else this.ghost2Hand2.visible = false;
+      // Don't show yourself (shouldn't happen since server broadcasts to others, but safety check)
+      if (data.senderNumber === this.game.myPlayerNumber) return;
+      
+      // Helper function to update a ghost avatar
+      const updateGhost = (ghostGroup, ghostHead, ghostHand1, ghostHand2, ghostNameLabel) => {
+        if (!this.ghostHiddenByUser) ghostGroup.visible = true;
+        ghostHead.position.set(data.head.x, data.head.y, data.head.z);
+        ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
+        if (ghostNameLabel) {
+          ghostNameLabel.visible = true;
+          ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
         }
-        return;
-      }
+        if (data.hand1) {
+          ghostHand1.visible = true;
+          ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
+          ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
+        } else ghostHand1.visible = false;
+        if (data.hand2) {
+          ghostHand2.visible = true;
+          ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
+          ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
+        } else ghostHand2.visible = false;
+      };
       
-      // PLAYER MODE: Only show avatar of their actual opponent
-      if (data.senderNumber !== undefined) {
-        const myOpponentNumber = this.game.myPlayerNumber === 1 ? 2 : 1;
-        if (data.senderNumber !== myOpponentNumber) return;
-      }
-      
-      // Show opponent ghost
-      if (!this.ghostHiddenByUser) {
-        this.ghostGroup.visible = true;
-      }
-      this.ghostHead.position.set(data.head.x, data.head.y, data.head.z);
-      this.ghostHead.quaternion.set(data.head.qx, data.head.qy, data.head.qz, data.head.qw);
-      
-      // Update name label position to follow head
-      if (this.ghostNameLabel) {
-        this.ghostNameLabel.position.set(data.head.x, data.head.y + 0.25, data.head.z);
-      }
-
-      if (data.hand1) {
-        this.ghostHand1.visible = true;
-        this.ghostHand1.position.set(data.hand1.x, data.hand1.y, data.hand1.z);
-        this.ghostHand1.quaternion.set(data.hand1.qx, data.hand1.qy, data.hand1.qz, data.hand1.qw);
-      } else {
-        this.ghostHand1.visible = false;
-      }
-
-      if (data.hand2) {
-        this.ghostHand2.visible = true;
-        this.ghostHand2.position.set(data.hand2.x, data.hand2.y, data.hand2.z);
-        this.ghostHand2.quaternion.set(data.hand2.qx, data.hand2.qy, data.hand2.qz, data.hand2.qw);
-      } else {
-        this.ghostHand2.visible = false;
+      // Route to correct ghost based on sender
+      if (data.senderNumber === 1) {
+        // Player 1 -> Ghost 1 (cyan)
+        updateGhost(this.ghostGroup, this.ghostHead, this.ghostHand1, this.ghostHand2, this.ghostNameLabel);
+      } else if (data.senderNumber === 2) {
+        // Player 2 -> Ghost 2 (magenta)
+        updateGhost(this.ghost2Group, this.ghost2Head, this.ghost2Hand1, this.ghost2Hand2, this.ghost2NameLabel);
+      } else if (data.senderNumber === 3) {
+        // Spectator 1 -> Ghost 3 (green)
+        updateGhost(this.ghost3Group, this.ghost3Head, this.ghost3Hand1, this.ghost3Hand2, this.ghost3NameLabel);
+      } else if (data.senderNumber === 4) {
+        // Spectator 2 -> Ghost 4 (yellow)
+        updateGhost(this.ghost4Group, this.ghost4Head, this.ghost4Hand1, this.ghost4Hand2, this.ghost4NameLabel);
       }
     });
 
@@ -836,7 +887,7 @@ export class NetworkManager {
 
   sendAvatarUpdate() {
     if (!this.isConnected || !this.roomCode) return;
-    if (this.game.isSpectator) return;  // Spectators don't send avatar updates
+    // Allow spectators to send avatar updates so everyone can see them
 
     const headPos = new THREE.Vector3();
     const headQuat = new THREE.Quaternion();
