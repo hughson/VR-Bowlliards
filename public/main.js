@@ -1520,13 +1520,20 @@ class VRBowlliardsGame {
       inning2Scored: currentFrameData.inning2.scored
     });
     
-    if (isMyFrameDone && !this.rulesEngine.isGameComplete()) {
+    // CRITICAL FIX: Only advance frame if not already in 10th frame
+    // In 10th frame, we should stay on frame 9 even if it's "done" because bonus rolls might be pending
+    if (isMyFrameDone && !this.rulesEngine.isGameComplete() && this.rulesEngine.currentFrame < 9) {
         console.log("[GAME] Advancing my frame number");
         this.rulesEngine.nextFrame();
     }
     
     if (!this.rulesEngine.isGameComplete()) {
       console.log("[GAME] Setting my turn to TRUE and reracking");
+      console.log("[GAME] Current state before rerack:", {
+        currentFrame: this.rulesEngine.currentFrame,
+        bonusRolls: this.rulesEngine.bonusRolls,
+        frame10: this.rulesEngine.currentFrame === 9 ? this.rulesEngine.frames[9] : null
+      });
       
       // CRITICAL FIX: Set turn to TRUE BEFORE setupNewFrame so controls are enabled
       this.isMyTurn = true;
@@ -1546,7 +1553,10 @@ class VRBowlliardsGame {
       console.log("[GAME] Game state after turn handoff:", {
         isMyTurn: this.isMyTurn,
         gameState: this.gameState,
-        ballInHandEnabled: this.ballInHand.enabled
+        ballInHandEnabled: this.ballInHand.enabled,
+        currentFrame: this.rulesEngine.currentFrame + 1,
+        bonusRolls: this.rulesEngine.bonusRolls,
+        isGameComplete: this.rulesEngine.isGameComplete()
       });
       
       this.showNotification(`Your turn! Frame ${this.rulesEngine.currentFrame + 1}`, 2500);
