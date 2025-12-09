@@ -915,6 +915,24 @@ class VRBowlliardsGame {
         }
       }
 
+      // CRITICAL FIX: Check if this is a bonus roll break shot
+      if (result.isBonus) {
+        // This is a break shot during bonus rolls
+        if (ballsScored > 0) {
+          this.showNotification(`Bonus break! ${ballsScored} ball(s) pocketed. Keep shooting!`, 2000);
+        } else {
+          this.showNotification('Bonus break - missed. Keep trying!', 2000);
+        }
+        this.gameState = 'ready';
+        this.updateScoreboard();
+        this.poolTable.resetShotTracking();
+        // In multiplayer, ensure we keep our turn for remaining bonus shots
+        if (this.isMultiplayer) {
+          this.isMyTurn = true;
+        }
+        return;
+      }
+
       if (scratch) {
         console.log('[GAME] Scratch on break! Balls pocketed:', ballsScored, 'Frame:', this.rulesEngine.currentFrame + 1);
         console.log('[GAME] Current inning1 score after processShot:', this.rulesEngine.frames[this.rulesEngine.currentFrame].inning1.scored);
