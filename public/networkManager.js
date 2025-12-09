@@ -234,11 +234,20 @@ export class NetworkManager {
   }
 
   updateGhostNameLabel(opponentName) {
-    if (this.ghostNameLabel && opponentName) {
-      // Recreate the label with new name (cyan for opponent)
+    // CRITICAL FIX: Update the correct ghost label based on opponent's player number
+    // Player 1's avatar uses ghostGroup, Player 2's uses ghost2Group
+    const opponentPlayerNumber = this.game.myPlayerNumber === 1 ? 2 : 1;
+    
+    if (opponentPlayerNumber === 1 && this.ghostNameLabel && opponentName) {
+      // Opponent is Player 1 -> update ghostNameLabel
       this.ghostGroup.remove(this.ghostNameLabel);
       this.ghostNameLabel = this.createNameLabel(opponentName, false);
       this.ghostGroup.add(this.ghostNameLabel);
+    } else if (opponentPlayerNumber === 2 && this.ghost2NameLabel && opponentName) {
+      // Opponent is Player 2 -> update ghost2NameLabel
+      this.ghost2Group.remove(this.ghost2NameLabel);
+      this.ghost2NameLabel = this.createNameLabel(opponentName, false, 0x00ffff);
+      this.ghost2Group.add(this.ghost2NameLabel);
     }
   }
 
