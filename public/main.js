@@ -1399,6 +1399,13 @@ class VRBowlliardsGame {
       // CRITICAL FIX: Check if game is complete BEFORE switching turns
       if (this.rulesEngine.isGameComplete()) {
         console.log("[GAME] Game is complete - ending game instead of switching turns");
+        console.log("[GAME] Final game state:", {
+          currentFrame: this.rulesEngine.currentFrame,
+          bonusRolls: this.rulesEngine.bonusRolls,
+          frame10: this.rulesEngine.frames[9],
+          isGameComplete: this.rulesEngine.isGameComplete()
+        });
+        
         const finalScore = this.rulesEngine.getTotalScore();
         this.gameState = 'gameOver';
         
@@ -1410,9 +1417,13 @@ class VRBowlliardsGame {
         
         // Export final scores to send to opponent
         const myScores = this.rulesEngine.exportScores();
+        console.log("[GAME] Exporting FINAL scores to opponent:", JSON.stringify(myScores, null, 2));
+        
         if (this.networkManager) {
           console.log("[GAME] ✓ Sending final frameComplete to opponent");
           this.networkManager.sendFrameComplete(myScores);
+        } else {
+          console.log("[GAME] ✗ No networkManager, cannot send final scores!");
         }
         
         this.updateScoreboard();
@@ -1556,8 +1567,23 @@ class VRBowlliardsGame {
       // CRITICAL FIX: Set turn to TRUE BEFORE setupNewFrame so controls are enabled
       this.isMyTurn = true;
       
-      // Rerack balls locally (opponent's racked state will sync via tableStateUpdate)
-      this.setupNewFrame(true);
+      // CRITICAL FIX: Re-capture currentFrameData after potential nextFrame() call
+      // This ensures we're checking the CURRENT frame, not the previous one
+      const updatedFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
+      
+      // CRITICAL FIX: Only rerack if we need a fresh frame
+      // Don't rerack if we're in 10th frame and have already started playing
+      const in10thFrame = this.rulesEngine.currentFrame === 9;
+      const frame10Started = in10thFrame && (updatedFrameData.inning1.scored > 0 || updatedFrameData.inning1.complete);
+      
+      if (!in10thFrame || !frame10Started) {
+        // Either not in 10th frame yet, OR in 10th frame but haven't started yet
+        console.log("[GAME] Reracking balls for new frame/10th frame start");
+        this.setupNewFrame(true);
+      } else {
+        // In 10th frame and already started - don't rerack, continue from current state
+        console.log("[GAME] In 10th frame and already started - NOT reracking, continuing from current state");
+      }
       
       // Ensure game state is ready and controls are enabled
       this.gameState = 'ready';

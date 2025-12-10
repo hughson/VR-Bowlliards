@@ -114,6 +114,13 @@ export class BowlliardsRulesEngine {
       if (bonusInningComplete) {
         this.bonusRolls--;
         
+        console.log('[SCORING] Bonus inning complete!', {
+          bonusRollsRemaining: this.bonusRolls,
+          bonusArray: frame10.bonus,
+          bonusArrayLength: frame10.bonus.length,
+          clearedAll
+        });
+        
         if (this.bonusRolls > 0) {
           // More bonus rolls remaining
           if (clearedAll) {
@@ -125,6 +132,15 @@ export class BowlliardsRulesEngine {
       }
       
       const gameOver = (this.bonusRolls === 0 && bonusInningComplete);
+      
+      console.log('[SCORING] Bonus roll result:', {
+        isBonus: true,
+        bonusInningComplete,
+        gameOver,
+        bonusRolls: this.bonusRolls,
+        bonusArray: frame10.bonus,
+        isGameComplete: this.isGameComplete()
+      });
 
       this.calculateScores();
 
