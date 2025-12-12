@@ -88,6 +88,32 @@ export class BowlliardsRulesEngine {
    * @returns {object} result info about the shot
    */
   processShot(ballsPocketed, isBreak = false) {
+    // CRITICAL: Block processing if we're somehow called when bonus rolls are 0 but we're still in 10th frame
+    // This is a defensive check to prevent the "one extra shot" bug
+    if (this.currentFrame === 9 && this.bonusRolls === 0 && 
+        this.frames[9].isStrike && this.frames[9].bonus.length >= 2) {
+      console.log('[SCORING] WARNING - Attempted to process shot after strike bonus rolls complete');
+      this.calculateScores();
+      return {
+        isBonus: true,
+        inningComplete: true,
+        gameOver: true,
+        isTenthFrame: true
+      };
+    }
+    
+    if (this.currentFrame === 9 && this.bonusRolls === 0 && 
+        this.frames[9].isSpare && this.frames[9].bonus.length >= 1) {
+      console.log('[SCORING] WARNING - Attempted to process shot after spare bonus roll complete');
+      this.calculateScores();
+      return {
+        isBonus: true,
+        inningComplete: true,
+        gameOver: true,
+        isTenthFrame: true
+      };
+    }
+    
     // If we're in 10th-frame bonus rolls, handle those first.
     if (this.bonusRolls > 0) {
       const frame10 = this.frames[9];
