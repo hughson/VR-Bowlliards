@@ -787,6 +787,13 @@ io.on('connection', (socket) => {
   // --- Frame Complete (Turn Switching) ---
   socket.on('frameComplete', (data) => {
     console.log(`*** FRAME COMPLETE in Room ${data.roomCode} ***`);
+    console.log(`[FRAME] Frame data:`, {
+      currentFrame: data.scores?.currentFrame,
+      isGameComplete: data.scores?.currentFrame === 9 && 
+        (data.scores?.frames?.[9]?.isOpen || 
+         (data.scores?.frames?.[9]?.isStrike && data.scores?.frames?.[9]?.bonus?.length >= 2) ||
+         (data.scores?.frames?.[9]?.isSpare && data.scores?.frames?.[9]?.bonus?.length >= 1))
+    });
     
     const room = rooms.get(data.roomCode);
     if (!room) {

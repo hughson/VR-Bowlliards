@@ -662,15 +662,16 @@ export class BowlliardsRulesEngine {
     if (!frame10.inning1.complete) return false;
 
     if (frame10.isStrike) {
-      // needs 2 bonus rolls
-      return frame10.bonus.length >= 2;
+      // CRITICAL FIX: needs 2 bonus rolls completed AND bonusRolls counter must be 0
+      // This prevents premature completion detection when bonus inning has started but not finished
+      return frame10.bonus.length >= 2 && this.bonusRolls === 0;
     }
 
     if (!frame10.inning2.complete) return false;
 
     if (frame10.isSpare) {
-      // needs 1 bonus roll
-      return frame10.bonus.length >= 1;
+      // CRITICAL FIX: needs 1 bonus roll completed AND bonusRolls counter must be 0
+      return frame10.bonus.length >= 1 && this.bonusRolls === 0;
     }
 
     // Open 10th frame: done when inning2 is complete

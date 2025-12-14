@@ -745,24 +745,44 @@ export class NetworkManager {
       console.log('[NETWORK] Received scores:', JSON.stringify(scoresData, null, 2));
       console.log('[NETWORK] My player info:', {
         myPlayerNumber: this.game.myPlayerNumber,
-        isMyTurn: this.game.isMyTurn
+        isMyTurn: this.game.isMyTurn,
+        myGameFinished: this.game.myGameFinished,
+        gameState: this.game.gameState,
+        myFrame: this.game.rulesEngine.currentFrame + 1,
+        myComplete: this.game.rulesEngine.isGameComplete()
       });
       
       if (this.game.remoteRulesEngine && scoresData) {
         console.log('[NETWORK] Before import - Remote engine state:', {
-          currentFrame: this.game.remoteRulesEngine.currentFrame,
-          frame0Inning1: this.game.remoteRulesEngine.frames[0].inning1,
-          frame0Inning2: this.game.remoteRulesEngine.frames[0].inning2
+          currentFrame: this.game.remoteRulesEngine.currentFrame + 1,
+          frame10: this.game.remoteRulesEngine.frames[9],
+          isComplete: this.game.remoteRulesEngine.isGameComplete()
         });
         
         this.game.remoteRulesEngine.importScores(scoresData);
         
         console.log('[NETWORK] After import - Remote engine state:', {
-          currentFrame: this.game.remoteRulesEngine.currentFrame,
-          frame0Inning1: this.game.remoteRulesEngine.frames[0].inning1,
-          frame0Inning2: this.game.remoteRulesEngine.frames[0].inning2,
-          totalScore: this.game.remoteRulesEngine.getTotalScore()
+          currentFrame: this.game.remoteRulesEngine.currentFrame + 1,
+          frame10: this.game.remoteRulesEngine.frames[9],
+          totalScore: this.game.remoteRulesEngine.getTotalScore(),
+          isComplete: this.game.remoteRulesEngine.isGameComplete(),
+          bonusRolls: this.game.remoteRulesEngine.bonusRolls
         });
+        
+        // CRITICAL: Check if opponent just finished their 10th frame with bonus
+        const oppFinishedGame = this.game.remoteRulesEngine.isGameComplete();
+        console.log('[NETWORK] Opponent finished their game?', oppFinishedGame);
+        
+        if (oppFinishedGame) {
+          console.log('[NETWORK] *** OPPONENT GAME COMPLETE - Final score:', this.game.remoteRulesEngine.getTotalScore());
+          
+          // CRITICAL FIX: If my game is NOT complete, reset any incorrect flags
+          const myComplete = this.game.rulesEngine.isGameComplete();
+          if (!myComplete && this.game.myGameFinished) {
+            console.log('[NETWORK] CRITICAL: Resetting myGameFinished flag before calling onOpponentFrameComplete');
+            this.game.myGameFinished = false;
+          }
+        }
       } else {
         console.log('[NETWORK] ✗ Cannot import scores:', {
           hasRemoteEngine: !!this.game.remoteRulesEngine,
@@ -770,37 +790,70 @@ export class NetworkManager {
         });
       }
       
+      // CRITICAL FIX: Update scoreboard FIRST to show opponent's final scores
+      this.game.updateScoreboard();
+      
+      // Then handle turn/game logic
       this.game.onOpponentFrameComplete();
-      this.game.updateScoreboard(); // Force scoreboard update after importing scores
-      this.game.checkGameComplete();
+      
       console.log('[NETWORK] ===== END OPPONENT FRAME COMPLETE =====');
     });
 
-    // NEW: Opponent score update (after each inning)
+    // NEW: Opponent score update (after each inning or bonus roll)
     this.socket.on('opponentScoreUpdate', (scoresData) => {
       console.log('[NETWORK] ===== OPPONENT SCORE UPDATE RECEIVED =====');
       console.log('[NETWORK] Received scores:', JSON.stringify(scoresData, null, 2));
       console.log('[NETWORK] My player info:', {
         myPlayerNumber: this.game.myPlayerNumber,
-        isMyTurn: this.game.isMyTurn
+        isMyTurn: this.game.isMyTurn,
+        myGameFinished: this.game.myGameFinished,
+        gameState: this.game.gameState
       });
       
       if (this.game.remoteRulesEngine && scoresData) {
         console.log('[NETWORK] Before import - Remote engine state:', {
-          currentFrame: this.game.remoteRulesEngine.currentFrame,
-          frame0: this.game.remoteRulesEngine.frames[0]
+          currentFrame: this.game.remoteRulesEngine.currentFrame + 1,
+          totalScore: this.game.remoteRulesEngine.getTotalScore(),
+          bonusRolls: this.game.remoteRulesEngine.bonusRolls,
+          frame10Bonus: this.game.remoteRulesEngine.frames[9].bonus
         });
         
         this.game.remoteRulesEngine.importScores(scoresData);
         
         console.log('[NETWORK] After import - Remote engine state:', {
-          currentFrame: this.game.remoteRulesEngine.currentFrame,
-          frame0: this.game.remoteRulesEngine.frames[0],
-          totalScore: this.game.remoteRulesEngine.getTotalScore()
+          currentFrame: this.game.remoteRulesEngine.currentFrame + 1,
+          totalScore: this.game.remoteRulesEngine.getTotalScore(),
+          isComplete: this.game.remoteRulesEngine.isGameComplete(),
+          bonusRolls: this.game.remoteRulesEngine.bonusRolls,
+          frame10Bonus: this.game.remoteRulesEngine.frames[9].bonus
         });
         
         this.game.updateScoreboard(); // Update scoreboard immediately
         console.log('[NETWORK] ✓ Scoreboard updated with opponent progress');
+        
+        // CRITICAL FIX: Check if opponent just completed their game via this score update
+        // This can happen during bonus rolls when they finish
+        if (this.game.remoteRulesEngine.isGameComplete()) {
+          console.log('[NETWORK] *** OPPONENT GAME COMPLETE detected in score update ***');
+          console.log('[NETWORK] Opponent final score:', this.game.remoteRulesEngine.getTotalScore());
+          
+          // Check if my game is also complete
+          const myComplete = this.game.rulesEngine.isGameComplete();
+          console.log('[NETWORK] My game complete?', myComplete);
+          
+          if (myComplete) {
+            // Both done - trigger game over check
+            console.log('[NETWORK] Both games complete - will trigger game over on frameComplete');
+          } else {
+            // Opponent finished but I haven't - make sure I can continue
+            // Don't trigger turn change here - wait for frameComplete event
+            // But DO ensure myGameFinished is not incorrectly set
+            if (this.game.myGameFinished) {
+              console.log('[NETWORK] CRITICAL: Resetting myGameFinished flag (was incorrectly set)');
+              this.game.myGameFinished = false;
+            }
+          }
+        }
       } else {
         console.log('[NETWORK] ✗ Cannot import scores:', {
           hasRemoteEngine: !!this.game.remoteRulesEngine,

@@ -93,39 +93,67 @@ class VRBowlliardsGame {
   }
 
   setTurnState(isMyTurn) {
+    console.log(`[GAME] ===== SET TURN STATE CALLED =====`);
+    console.log(`[GAME] Requested turn: ${isMyTurn ? "MY TURN" : "OPPONENT'S TURN"}`);
+    console.log(`[GAME] Current state: isMyTurn=${this.isMyTurn}, gameState=${this.gameState}, myGameFinished=${this.myGameFinished}`);
+    
     // Don't change turn state if game is over
     if (this.gameState === 'gameOver') {
       console.log(`[GAME] Ignoring turn change - game is over`);
       return;
     }
     
-    // Don't change turn state if we're spectating (our game finished, watching opponent)
-    if (this.gameState === 'spectating' || this.myGameFinished) {
-      console.log(`[GAME] Ignoring turn change - spectating opponent finish their game`);
+    // CRITICAL FIX: Check the ACTUAL game completion state from rules engine
+    const myGameComplete = this.rulesEngine.isGameComplete();
+    
+    // CRITICAL: If rules engine says game is NOT complete, reset any incorrect flags
+    if (!myGameComplete && isMyTurn) {
+      // My game is not complete and someone is trying to give me the turn - allow it!
+      console.log(`[GAME] Game not complete (frame ${this.rulesEngine.currentFrame + 1}), allowing turn to be set to MY TURN`);
+      
+      // Reset any incorrect flags
+      if (this.myGameFinished) {
+        console.log(`[GAME] CRITICAL: Resetting myGameFinished flag (was incorrectly set)`);
+        this.myGameFinished = false;
+      }
+      if (this.gameState === 'spectating') {
+        console.log(`[GAME] CRITICAL: Resetting gameState from spectating`);
+        this.gameState = 'waiting';
+      }
+    } else if (myGameComplete && isMyTurn) {
+      // My game IS complete - only allow spectating/waiting, not playing
+      console.log(`[GAME] Ignoring turn change to MY TURN - my game is complete`);
+      return;
+    }
+    
+    // Don't change turn state if we're spectating and trying to take a turn (and game is complete)
+    if (this.gameState === 'spectating' && isMyTurn && myGameComplete) {
+      console.log(`[GAME] Ignoring turn change - spectating and my game is complete`);
       return;
     }
     
     // Don't change turn state while balls are in motion from our shot
     if (!isMyTurn && this.isMyTurn && this.gameState === 'shooting') {
-      console.log(`[GAME] ===== IGNORING TURN CHANGE =====`);
-      console.log(`[GAME] Reason: Currently shooting, balls in motion`);
+      console.log(`[GAME] Ignoring turn change - currently shooting, balls in motion`);
       return;
     }
     
-    // CRITICAL: Don't switch turn AWAY from player if they're in 10th frame and haven't finished
-    // This prevents opponent's game completion from interrupting our 10th frame
-    if (!isMyTurn && this.isMyTurn && this.rulesEngine.currentFrame === 9 && !this.rulesEngine.isGameComplete()) {
-      console.log(`[GAME] ===== IGNORING TURN CHANGE =====`);
-      console.log(`[GAME] Reason: Currently in 10th frame and game not complete`);
-      console.log(`[GAME] Current frame: ${this.rulesEngine.currentFrame + 1}, Game complete: ${this.rulesEngine.isGameComplete()}`);
-      console.log(`[GAME] Keeping turn as MY TURN to finish 10th frame`);
-      return;
+    // CRITICAL: Don't switch turn AWAY from player if they're in 10th frame with bonus rolls pending
+    if (!isMyTurn && this.isMyTurn && this.rulesEngine.currentFrame === 9) {
+      // Check if we have bonus rolls remaining
+      if (this.rulesEngine.bonusRolls > 0) {
+        console.log(`[GAME] Ignoring turn change - in 10th frame with ${this.rulesEngine.bonusRolls} bonus rolls remaining`);
+        return;
+      }
+      // Check if game is not complete (could be mid-10th frame regular play)
+      if (!myGameComplete) {
+        console.log(`[GAME] Ignoring turn change - in 10th frame and game not complete`);
+        return;
+      }
     }
     
-    console.log(`[GAME] ===== SET TURN STATE =====`);
     console.log(`[GAME] Setting turn to: ${isMyTurn ? "MY TURN" : "OPPONENT'S TURN"}`);
     console.log(`[GAME] Player Number: ${this.myPlayerNumber}`);
-    console.log(`[GAME] Previous state: ${this.isMyTurn ? "was my turn" : "was opponent's turn"}`);
     
     this.isMyTurn = isMyTurn;
 
@@ -140,6 +168,11 @@ class VRBowlliardsGame {
         // Play "It is your turn" audio notification in multiplayer (only after game has started)
         if (this.isMultiplayer && this.gameStarted && this.soundManager) {
             this.soundManager.playSound('yourTurn', null, 1.0);
+        }
+        
+        // CRITICAL: Ensure cue controller is updated for shooting
+        if (this.cueController) {
+          this.cueController.update(true);
         }
         
         console.log(`[GAME] ✓ Controls ENABLED - You can shoot`);
@@ -1307,8 +1340,23 @@ class VRBowlliardsGame {
       }
     } else if (result.isBonus) {
       // Handle bonus roll results
+      console.log('[GAME] Bonus roll result:', {
+        gameOver: result.gameOver,
+        inningComplete: result.inningComplete,
+        needsRerack: result.needsRerack,
+        bonusRollsRemaining: this.rulesEngine.bonusRolls
+      });
+      
       if (result.gameOver) {
-        this.showNotification('Bonus rolls complete!', 2000);
+        this.showNotification('Bonus rolls complete! Game finished.', 2500);
+        
+        // Send final score update to opponent BEFORE advancing frame
+        if (this.isMultiplayer && this.networkManager && this.isMyTurn) {
+          const myScores = this.rulesEngine.exportScores();
+          console.log('[GAME] Sending final bonus scores to opponent');
+          this.networkManager.sendScoreUpdate(myScores);
+        }
+        
         await this.advanceFrame();
         this.poolTable.resetShotTracking();
         return;
@@ -1324,6 +1372,14 @@ class VRBowlliardsGame {
           // Missed - continue from where you are for next bonus inning
           this.showNotification('Next bonus inning! Keep shooting...', 1500);
         }
+        
+        // Send score update to opponent during bonus rolls
+        if (this.isMultiplayer && this.networkManager && this.isMyTurn) {
+          const myScores = this.rulesEngine.exportScores();
+          console.log('[GAME] Sending bonus progress to opponent');
+          this.networkManager.sendScoreUpdate(myScores);
+        }
+        
         this.updateScoreboard();
         this.gameState = 'ready';
         this.poolTable.resetShotTracking();
@@ -1336,6 +1392,14 @@ class VRBowlliardsGame {
         return;
       } else {
         // Still shooting in current bonus inning
+        
+        // Send score update to opponent during bonus rolls
+        if (this.isMultiplayer && this.networkManager && this.isMyTurn) {
+          const myScores = this.rulesEngine.exportScores();
+          console.log('[GAME] Sending bonus progress to opponent (mid-inning)');
+          this.networkManager.sendScoreUpdate(myScores);
+        }
+        
         this.updateScoreboard();
         this.gameState = 'ready';
         this.poolTable.resetShotTracking();
@@ -1465,7 +1529,7 @@ class VRBowlliardsGame {
       
       // CRITICAL FIX: Check if game is complete BEFORE switching turns
       if (this.rulesEngine.isGameComplete()) {
-        console.log("[GAME] My game is complete - but opponent may still be playing");
+        console.log("[GAME] *** MY GAME IS COMPLETE ***");
         console.log("[GAME] Final game state:", {
           currentFrame: this.rulesEngine.currentFrame,
           bonusRolls: this.rulesEngine.bonusRolls,
@@ -1475,36 +1539,50 @@ class VRBowlliardsGame {
         
         const finalScore = this.rulesEngine.getTotalScore();
         
-        // Mark MY game as finished, but don't end the whole match yet
+        // Mark MY game as finished
         this.myGameFinished = true;
-        this.gameState = 'spectating';  // New state: watching opponent finish
         
         // CRITICAL: Set isMyTurn to false so we don't process shots as our own
         this.isMyTurn = false;
-        console.log("[GAME] Set myGameFinished = true, gameState = 'spectating'");
         
-        // Show local game complete message
-        this.showNotification(`Your game is complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
-        
-        // Play local completion celebration (strike/spare already played)
-        if (this.celebrationSystem) {
-          // Show "Game Complete" text but don't play final win/loss celebration yet
-          this.celebrationSystem.celebrateGameOver(finalScore);
-        }
-        
-        // Export final scores to send to opponent
+        // Export final scores to send to opponent FIRST (before any checks)
         const myScores = this.rulesEngine.exportScores();
-        console.log("[GAME] Exporting FINAL scores to opponent:", JSON.stringify(myScores, null, 2));
+        console.log("[GAME] Exporting FINAL scores to opponent:", {
+          totalScore: finalScore,
+          frame10: myScores.frames[9],
+          bonusRolls: myScores.bonusRolls
+        });
         
         if (this.networkManager) {
           console.log("[GAME] ✓ Sending final frameComplete to opponent");
           this.networkManager.sendFrameComplete(myScores);
-        } else {
-          console.log("[GAME] ✗ No networkManager, cannot send final scores!");
         }
         
-        this.updateScoreboard();
-        this.checkGameComplete(); // Check if opponent is also done
+        // Check if opponent is also done
+        const oppComplete = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
+        console.log("[GAME] Opponent complete?", oppComplete);
+        
+        if (oppComplete) {
+          // Both done! Game should end
+          console.log("[GAME] Both players are complete - checking final results");
+          this.updateScoreboard();
+          this.checkGameComplete();
+        } else {
+          // I'm done but opponent isn't - spectate their remaining play
+          this.gameState = 'spectating';
+          console.log("[GAME] Set gameState = 'spectating' - waiting for opponent to finish");
+          
+          // Show local game complete message with opponent's current score
+          const oppScore = this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 0;
+          this.showNotification(`Your game is complete! Score: ${finalScore}. Opponent has: ${oppScore}. Waiting...`, 5000);
+          
+          // Play local completion celebration
+          if (this.celebrationSystem) {
+            this.celebrationSystem.celebrateGameOver(finalScore);
+          }
+          
+          this.updateScoreboard();
+        }
         return;
       }
       
@@ -1594,7 +1672,36 @@ class VRBowlliardsGame {
   }
 
   onOpponentFrameComplete() {
-    console.log("[GAME] Opponent frame complete - checking if my turn");
+    console.log("[GAME] ===== OPPONENT FRAME COMPLETE =====");
+    
+    // Log opponent's full state for debugging
+    if (this.remoteRulesEngine) {
+      console.log("[GAME] Opponent state after frame complete:", {
+        oppFrame: this.remoteRulesEngine.currentFrame + 1,
+        oppScore: this.remoteRulesEngine.getTotalScore(),
+        oppComplete: this.remoteRulesEngine.isGameComplete(),
+        oppBonusRolls: this.remoteRulesEngine.bonusRolls,
+        oppFrame10: {
+          inning1: this.remoteRulesEngine.frames[9].inning1,
+          inning2: this.remoteRulesEngine.frames[9].inning2,
+          isStrike: this.remoteRulesEngine.frames[9].isStrike,
+          isSpare: this.remoteRulesEngine.frames[9].isSpare,
+          isOpen: this.remoteRulesEngine.frames[9].isOpen,
+          bonus: this.remoteRulesEngine.frames[9].bonus
+        }
+      });
+    }
+    
+    // Log MY current state
+    console.log("[GAME] My current state:", {
+      myFrame: this.rulesEngine.currentFrame + 1,
+      myScore: this.rulesEngine.getTotalScore(),
+      myComplete: this.rulesEngine.isGameComplete(),
+      myBonusRolls: this.rulesEngine.bonusRolls,
+      isMyTurn: this.isMyTurn,
+      gameState: this.gameState,
+      myGameFinished: this.myGameFinished
+    });
     
     // Don't process if game is already fully over (both players done)
     if (this.gameState === 'gameOver') {
@@ -1602,33 +1709,132 @@ class VRBowlliardsGame {
       return;
     }
     
-    // If we're spectating (our game finished, watching opponent), just check if they're done too
-    if (this.gameState === 'spectating' || this.myGameFinished) {
-      console.log("[GAME] Spectating - opponent completed a frame, checking if match is over");
-      console.log("[GAME] Opponent progress:", {
-        oppFrame: this.remoteRulesEngine ? this.remoteRulesEngine.currentFrame : 'N/A',
-        oppScore: this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 'N/A',
-        oppComplete: this.remoteRulesEngine ? this.remoteRulesEngine.isGameComplete() : 'N/A'
+    // Check if opponent just finished their entire game (10th frame complete with bonus if applicable)
+    const opponentFinishedGame = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
+    const myGameComplete = this.rulesEngine.isGameComplete();
+    
+    console.log("[GAME] Completion status:", {
+      opponentFinishedGame,
+      myGameComplete,
+      myGameFinished: this.myGameFinished
+    });
+    
+    // CRITICAL FIX: If my game is NOT complete according to rules engine, 
+    // reset myGameFinished flag and clear spectating state to allow continued play
+    if (!myGameComplete) {
+      if (this.myGameFinished) {
+        console.log("[GAME] CRITICAL: Resetting myGameFinished flag (was incorrectly set, game NOT complete)");
+        this.myGameFinished = false;
+      }
+      if (this.gameState === 'spectating') {
+        console.log("[GAME] CRITICAL: Resetting gameState from spectating (game NOT complete)");
+        this.gameState = 'waiting';
+      }
+    }
+    
+    // CASE 1: Both games are complete - trigger game over
+    if (opponentFinishedGame && myGameComplete) {
+      console.log("[GAME] *** BOTH PLAYERS COMPLETE - Triggering game over ***");
+      this.myGameFinished = true;
+      this.updateScoreboard();
+      this.checkGameComplete();
+      return;
+    }
+    
+    // CASE 2: Opponent finished their game but I haven't - I MUST continue playing
+    // This is the key fix for the 10th frame bonus issue
+    if (opponentFinishedGame && !myGameComplete) {
+      console.log("[GAME] *** OPPONENT FINISHED GAME - I must continue playing ***");
+      console.log("[GAME] Opponent's final score:", this.remoteRulesEngine.getTotalScore());
+      console.log("[GAME] Setting up my turn to continue the match");
+      
+      // CRITICAL: Clear any incorrect state flags
+      this.myGameFinished = false;
+      
+      // Force set our turn and state
+      this.isMyTurn = true;
+      this.gameState = 'ready';
+      this.ballsSettled = true;
+      
+      // Check if my current frame is done (need to advance)
+      const currentFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
+      const isMyFrameDone = currentFrameData.isStrike || currentFrameData.isOpen || 
+                            (currentFrameData.inning1.complete && currentFrameData.inning2.complete);
+      
+      // Advance frame if current is done (but not if we're in 10th with bonus pending)
+      if (isMyFrameDone && this.rulesEngine.currentFrame < 9) {
+        console.log("[GAME] My current frame is done, advancing to next");
+        this.rulesEngine.nextFrame();
+      }
+      
+      // Check if we need to rerack
+      const updatedFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
+      const in10thFrame = this.rulesEngine.currentFrame === 9;
+      const frame10Started = in10thFrame && (updatedFrameData.inning1.scored > 0 || updatedFrameData.inning1.complete);
+      const haveBonusRolls = this.rulesEngine.bonusRolls > 0;
+      
+      // Rerack if starting fresh frame OR starting 10th frame fresh OR need rerack for bonus
+      if (!in10thFrame || (!frame10Started && !haveBonusRolls)) {
+        console.log("[GAME] Setting up new frame for my turn");
+        this.setupNewFrame(true);
+      } else if (haveBonusRolls && (updatedFrameData.isStrike || updatedFrameData.isSpare)) {
+        // In 10th frame with bonus rolls - make sure balls are racked
+        console.log("[GAME] In 10th frame with bonus rolls - ensuring balls are racked");
+        this.poolTable.setupBalls();
+        this.ballsSettled = true;
+      }
+      
+      // Enable controls
+      this.ballInHand.enable(true);
+      if (this.cueController) {
+        this.cueController.update(true);
+      }
+      
+      // Play turn notification
+      if (this.soundManager) {
+        this.soundManager.playSound('yourTurn', null, 1.0);
+      }
+      
+      this.showNotification(`Opponent finished with ${this.remoteRulesEngine.getTotalScore()}! Your turn - Frame ${this.rulesEngine.currentFrame + 1}`, 4000);
+      this.updateScoreboard();
+      
+      console.log("[GAME] Turn setup complete:", {
+        isMyTurn: this.isMyTurn,
+        gameState: this.gameState,
+        currentFrame: this.rulesEngine.currentFrame + 1,
+        ballInHandEnabled: this.ballInHand.enabled,
+        bonusRolls: this.rulesEngine.bonusRolls
       });
-      this.updateScoreboard();
-      this.checkGameComplete(); // Check if opponent also finished their 10 frames
       return;
     }
     
-    // Don't process if it's already my turn and I'm in the middle of playing
-    // This can happen if messages arrive out of order or if opponent finishes while I'm shooting
-    if (this.isMyTurn && this.gameState !== 'waiting') {
-      console.log("[GAME] Ignoring opponent frame complete - already my turn and actively playing");
+    // CASE 3: I'm spectating (my game finished, watching opponent finish)
+    if ((this.gameState === 'spectating' || this.myGameFinished) && !opponentFinishedGame) {
+      console.log("[GAME] Spectating - opponent completed a frame but not game yet");
+      this.updateScoreboard();
+      return;
+    }
+    
+    // CASE 4: My game finished and opponent just finished too
+    if ((this.gameState === 'spectating' || this.myGameFinished) && opponentFinishedGame) {
+      console.log("[GAME] Spectating - opponent also finished, triggering game over");
+      this.updateScoreboard();
       this.checkGameComplete();
-      this.updateScoreboard();
       return;
     }
     
-    // CRITICAL: If we're in 10th frame with bonus rolls pending, don't interrupt!
-    if (this.rulesEngine.currentFrame === 9 && this.rulesEngine.bonusRolls > 0) {
-      console.log("[GAME] Ignoring opponent frame complete - in 10th frame with bonus rolls pending");
+    // CASE 5: I'm in 10th frame with bonus rolls ACTIVE - don't interrupt my turn!
+    if (this.rulesEngine.currentFrame === 9 && this.rulesEngine.bonusRolls > 0 && this.isMyTurn) {
+      console.log("[GAME] In 10th frame with bonus rolls pending AND it's my turn - not interrupting");
       console.log("[GAME] Bonus rolls remaining:", this.rulesEngine.bonusRolls);
-      this.checkGameComplete();
+      this.updateScoreboard();
+      return;
+    }
+    
+    // CASE 6: Normal frame-by-frame turn switching
+    // If it's already my turn and game is ready, don't interrupt
+    if (this.isMyTurn && this.gameState === 'ready') {
+      console.log("[GAME] Already my turn and ready - just updating scoreboard");
       this.updateScoreboard();
       return;
     }
@@ -1639,49 +1845,33 @@ class VRBowlliardsGame {
                           (currentFrameData.inning1.complete && currentFrameData.inning2.complete);
     
     console.log("[GAME] My current frame status:", {
-      frame: this.rulesEngine.currentFrame,
+      frame: this.rulesEngine.currentFrame + 1,
       isMyFrameDone,
-      bonusRolls: this.rulesEngine.bonusRolls,
-      inning1Complete: currentFrameData.inning1.complete,
-      inning2Complete: currentFrameData.inning2.complete,
-      inning1Scored: currentFrameData.inning1.scored,
-      inning2Scored: currentFrameData.inning2.scored
+      bonusRolls: this.rulesEngine.bonusRolls
     });
     
-    // CRITICAL FIX: Only advance frame if not already in 10th frame
-    // In 10th frame, we should stay on frame 9 even if it's "done" because bonus rolls might be pending
-    if (isMyFrameDone && !this.rulesEngine.isGameComplete() && this.rulesEngine.currentFrame < 9) {
+    // Only advance frame if not already in 10th frame
+    if (isMyFrameDone && !myGameComplete && this.rulesEngine.currentFrame < 9) {
         console.log("[GAME] Advancing my frame number");
         this.rulesEngine.nextFrame();
     }
     
-    if (!this.rulesEngine.isGameComplete()) {
-      console.log("[GAME] Setting my turn to TRUE and reracking");
-      console.log("[GAME] Current state before rerack:", {
-        currentFrame: this.rulesEngine.currentFrame,
-        bonusRolls: this.rulesEngine.bonusRolls,
-        frame10: this.rulesEngine.currentFrame === 9 ? this.rulesEngine.frames[9] : null
-      });
+    if (!myGameComplete) {
+      console.log("[GAME] Setting my turn to TRUE and setting up");
       
-      // CRITICAL FIX: Set turn to TRUE BEFORE setupNewFrame so controls are enabled
+      // Set turn BEFORE setupNewFrame so controls are enabled
       this.isMyTurn = true;
       
-      // CRITICAL FIX: Re-capture currentFrameData after potential nextFrame() call
-      // This ensures we're checking the CURRENT frame, not the previous one
+      // Check if we need to rerack
       const updatedFrameData = this.rulesEngine.frames[this.rulesEngine.currentFrame];
-      
-      // CRITICAL FIX: Only rerack if we need a fresh frame
-      // Don't rerack if we're in 10th frame and have already started playing
       const in10thFrame = this.rulesEngine.currentFrame === 9;
       const frame10Started = in10thFrame && (updatedFrameData.inning1.scored > 0 || updatedFrameData.inning1.complete);
       
       if (!in10thFrame || !frame10Started) {
-        // Either not in 10th frame yet, OR in 10th frame but haven't started yet
         console.log("[GAME] Reracking balls for new frame/10th frame start");
         this.setupNewFrame(true);
       } else {
-        // In 10th frame and already started - don't rerack, continue from current state
-        console.log("[GAME] In 10th frame and already started - NOT reracking, continuing from current state");
+        console.log("[GAME] In 10th frame and already started - continuing from current state");
       }
       
       // Ensure game state is ready and controls are enabled
@@ -1693,43 +1883,74 @@ class VRBowlliardsGame {
         this.soundManager.playSound('yourTurn', null, 1.0);
       }
       
+      // Force enable cue controller for shooting
+      if (this.cueController) {
+        this.cueController.update(true);
+      }
+      
       console.log("[GAME] Game state after turn handoff:", {
         isMyTurn: this.isMyTurn,
         gameState: this.gameState,
         ballInHandEnabled: this.ballInHand.enabled,
-        currentFrame: this.rulesEngine.currentFrame + 1,
-        bonusRolls: this.rulesEngine.bonusRolls,
-        isGameComplete: this.rulesEngine.isGameComplete()
+        currentFrame: this.rulesEngine.currentFrame + 1
       });
       
       this.showNotification(`Your turn! Frame ${this.rulesEngine.currentFrame + 1}`, 2500);
     } else {
       console.log("[GAME] My game is also complete - checking final results");
+      this.myGameFinished = true;
       this.checkGameComplete();
     }
     this.updateScoreboard();
+    console.log("[GAME] ===== END OPPONENT FRAME COMPLETE =====");
   }
 
   checkGameComplete() {
     if (!this.isMultiplayer) return;
+    
     const myComplete = this.rulesEngine.isGameComplete();
     const oppComplete = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
     
+    // Display human-readable frame numbers (1-indexed)
     console.log('[GAME] checkGameComplete:', {
       myComplete,
       oppComplete,
       myScore: this.rulesEngine.getTotalScore(),
       oppScore: this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 'N/A',
-      myFrame: this.rulesEngine.currentFrame,
-      oppFrame: this.remoteRulesEngine ? this.remoteRulesEngine.currentFrame : 'N/A',
+      myFrame: this.rulesEngine.currentFrame + 1,
+      oppFrame: this.remoteRulesEngine ? this.remoteRulesEngine.currentFrame + 1 : 'N/A',
+      myBonusRolls: this.rulesEngine.bonusRolls,
+      oppBonusRolls: this.remoteRulesEngine ? this.remoteRulesEngine.bonusRolls : 'N/A',
       myGameFinished: this.myGameFinished,
       gameState: this.gameState
     });
     
-    if (myComplete && oppComplete) {
+    // SAFEGUARD: Don't end game if I haven't actually COMPLETED my 10th frame with bonus
+    if ((myComplete || this.myGameFinished) && this.rulesEngine.currentFrame === 9) {
+      const myFrame10 = this.rulesEngine.frames[9];
+      
+      // If I have a strike or spare in 10th, make sure bonus rolls are done
+      if ((myFrame10.isStrike || myFrame10.isSpare) && this.rulesEngine.bonusRolls > 0) {
+        console.log('[GAME] WARNING: myComplete is true but I still have bonus rolls!');
+        console.log('[GAME] My bonusRolls:', this.rulesEngine.bonusRolls);
+        console.log('[GAME] NOT ending game - I need to finish bonus rolls');
+        return;
+      }
+    }
+    
+    // Both players have finished (either via isGameComplete or myGameFinished flag)
+    const bothDone = myComplete && oppComplete;
+    
+    if (bothDone) {
+      console.log('[GAME] ===== BOTH PLAYERS CONFIRMED COMPLETE =====');
+      
       const myScore = this.rulesEngine.getTotalScore();
       const oppScore = this.remoteRulesEngine.getTotalScore();
+      
+      console.log('[GAME] Final Scores - Me:', myScore, 'Opponent:', oppScore);
+      
       let gameResult = null;
+      
       if (myScore > oppScore) {
         this.showNotification(`YOU WIN! ${myScore} vs ${oppScore} - Click "New Game" to play again!`, 8000);
         gameResult = 'win';
@@ -1747,12 +1968,41 @@ class VRBowlliardsGame {
       }
       
       this.gameState = 'gameOver';
-      this.isMyTurn = false;  // CRITICAL: Prevent processing any more shots
-      this.myGameFinished = true;  // Ensure this is also set
+      this.isMyTurn = false;
+      this.myGameFinished = true;
       console.log('[GAME] ===== GAME OVER ===== Both players finished. Click New Game to play again.');
+      
+      // Update scoreboard one final time to ensure both scores are displayed
+      this.updateScoreboard();
       
       // Save multiplayer game to stats tracker if logged in (with game result)
       this.saveMultiplayerGame(myScore, gameResult);
+    } else if (!myComplete && oppComplete) {
+      // Opponent finished but I haven't - make sure I can continue playing
+      console.log('[GAME] Opponent finished their game, I still need to play');
+      
+      // CRITICAL FIX: Reset any incorrect flags and ensure turn is mine
+      this.myGameFinished = false;
+      
+      if (this.gameState !== 'gameOver' && this.gameState !== 'shooting') {
+        console.log('[GAME] Ensuring my turn is enabled to continue');
+        this.isMyTurn = true;
+        this.gameState = 'ready';
+        this.ballsSettled = true;
+        this.ballInHand.enable(true);
+        if (this.cueController) {
+          this.cueController.update(true);
+        }
+        
+        // Show notification
+        this.showNotification(`Keep playing! Opponent finished with ${this.remoteRulesEngine.getTotalScore()}`, 3000);
+      }
+    } else if (myComplete && !oppComplete) {
+      // I finished but opponent hasn't - enter spectating mode
+      console.log('[GAME] I finished, waiting for opponent to complete');
+      this.gameState = 'spectating';
+      this.myGameFinished = true;
+      this.isMyTurn = false;
     }
   }
   
@@ -1904,11 +2154,14 @@ class VRBowlliardsGame {
       
       if (this.scoreboard.mode !== 'multi') this.scoreboard.setupBoard('multi');
       
+      // Display human-readable frame numbers (1-indexed)
       console.log('[GAME] Updating multiplayer scoreboard:', {
-        myFrame: this.rulesEngine.currentFrame,
-        oppFrame: this.remoteRulesEngine.currentFrame,
+        myFrame: this.rulesEngine.currentFrame + 1,
+        oppFrame: this.remoteRulesEngine.currentFrame + 1,
         myScore: this.rulesEngine.getTotalScore(),
-        oppScore: this.remoteRulesEngine.getTotalScore()
+        oppScore: this.remoteRulesEngine.getTotalScore(),
+        myComplete: this.rulesEngine.isGameComplete(),
+        oppComplete: this.remoteRulesEngine.isGameComplete()
       });
       
       this.scoreboard.updateScore(

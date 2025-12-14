@@ -174,8 +174,10 @@ export class Scoreboard {
       myName,
       oppName,
       isMyTurn,
-      localFrame: rulesEngine ? rulesEngine.currentFrame : 'none',
-      remoteFrame: remoteRulesEngine ? remoteRulesEngine.currentFrame : 'none'
+      localFrame: rulesEngine ? rulesEngine.currentFrame + 1 : 'none',
+      remoteFrame: remoteRulesEngine ? remoteRulesEngine.currentFrame + 1 : 'none',
+      localComplete: rulesEngine ? rulesEngine.isGameComplete() : false,
+      remoteComplete: remoteRulesEngine ? remoteRulesEngine.isGameComplete() : false
     });
     
     if (this.mode === 'multi' && remoteRulesEngine) {
@@ -192,10 +194,12 @@ export class Scoreboard {
     const ctx = this.ctx;
 
     console.log('[SCOREBOARD] Drawing multiplayer scores:', {
-      localFrame: localRules ? localRules.currentFrame : 'null',
-      remoteFrame: remoteRules ? remoteRules.currentFrame : 'null',
+      localFrame: localRules ? localRules.currentFrame + 1 : 'null',
+      remoteFrame: remoteRules ? remoteRules.currentFrame + 1 : 'null',
       localTotal: localRules ? localRules.getTotalScore() : 0,
-      remoteTotal: remoteRules ? remoteRules.getTotalScore() : 0
+      remoteTotal: remoteRules ? remoteRules.getTotalScore() : 0,
+      localComplete: localRules ? localRules.isGameComplete() : false,
+      remoteComplete: remoteRules ? remoteRules.isGameComplete() : false
     });
 
     ctx.fillStyle = '#000000';
