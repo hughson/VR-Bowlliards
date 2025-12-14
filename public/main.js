@@ -72,6 +72,9 @@ class VRBowlliardsGame {
     this.newGameRequestPending = false;   // True if we've requested new game
     this.opponentWantsNewGame = false;    // True if opponent requested new game
     
+    // Track when local player has finished all 10 frames (but opponent may still be playing)
+    this.myGameFinished = false;
+    
     // Practice while waiting mode
     this.isPracticeWhileWaiting = false;  // True when playing solo while in matchmaking queue
     this.practiceRulesEngine = null;      // Separate rules engine for practice (don't pollute main one)
@@ -93,6 +96,12 @@ class VRBowlliardsGame {
     // Don't change turn state if game is over
     if (this.gameState === 'gameOver') {
       console.log(`[GAME] Ignoring turn change - game is over`);
+      return;
+    }
+    
+    // Don't change turn state if we're spectating (our game finished, watching opponent)
+    if (this.gameState === 'spectating' || this.myGameFinished) {
+      console.log(`[GAME] Ignoring turn change - spectating opponent finish their game`);
       return;
     }
     
@@ -711,6 +720,22 @@ class VRBowlliardsGame {
   onSqueezeEnd() {}
 
   checkBallsSettled() {
+    // Handle spectating mode - just track when balls settle, no processing
+    if (this.gameState === 'spectating') {
+      if (!this.ballsSettled) {
+        const allSettled = this.poolTable.balls.every((ball) => {
+          if (ball.position.y < -0.5 || ball.userData.isPocketed) return true;
+          const body = ball.userData.physicsBody;
+          return body.velocity.length() < 0.1 && body.angularVelocity.length() < 0.1;
+        });
+        if (allSettled) {
+          this.ballsSettled = true;
+          console.log('[GAME] Spectating: balls settled, ready for opponent\'s next shot');
+        }
+      }
+      return;
+    }
+    
     if (this.gameState !== 'shooting') return;
     
     // CRITICAL: Don't trigger processShot for opponent's shots when our game is complete
@@ -724,8 +749,15 @@ class VRBowlliardsGame {
       });
       if (allSettled && !this.ballsSettled) {
         this.ballsSettled = true;
-        this.gameState = 'gameOver';  // Restore gameOver state
-        console.log('[GAME] Balls settled but game is complete - not processing shot');
+        // FIXED: If we're spectating opponent (myGameFinished but waiting for opponent),
+        // restore 'spectating' state instead of 'gameOver' so we keep watching their shots
+        if (this.myGameFinished && this.remoteRulesEngine && !this.remoteRulesEngine.isGameComplete()) {
+          this.gameState = 'spectating';  // Opponent still playing - keep spectating
+          console.log('[GAME] Balls settled, spectating opponent - ready for their next shot');
+        } else {
+          this.gameState = 'gameOver';  // Both done or single player - game over
+          console.log('[GAME] Balls settled but game is complete - not processing shot');
+        }
       }
       return;
     }
@@ -780,14 +812,22 @@ class VRBowlliardsGame {
   }
 
   executeRemoteShot(direction, power, spin) {
-    // CRITICAL: Don't process remote shots if our game is over
-    // This prevents opponent's 10th frame shots from affecting our score
-    if (this.gameState === 'gameOver') {
-      console.log('[GAME] Ignoring remote shot - our game is over');
-      // Still execute the visual ball movement for spectating
+    // If we're spectating (our game finished, waiting for opponent), show their shots visually
+    if (this.gameState === 'spectating' || this.myGameFinished) {
+      console.log('[GAME] Spectating opponent shot - showing visual only');
       this.poolTable.shootCueBall(direction, power, spin);
       this.isAuthority = false;
-      // Don't set gameState to 'shooting' - keep it as 'gameOver'
+      this.ballsSettled = false;  // Track that balls are in motion
+      // Ensure state stays as 'spectating' - don't process for scoring
+      this.gameState = 'spectating';
+      return;
+    }
+    
+    // If game is fully over (both players done), still show visual
+    if (this.gameState === 'gameOver') {
+      console.log('[GAME] Game over - showing opponent shot visual only');
+      this.poolTable.shootCueBall(direction, power, spin);
+      this.isAuthority = false;
       return;
     }
     
@@ -808,12 +848,20 @@ class VRBowlliardsGame {
       return;
     }
     
+    // Block processing if we're spectating (our game finished, watching opponent)
+    if (this.gameState === 'spectating' || this.myGameFinished) {
+      console.log('[PROCESSSHOT] BLOCKED - Spectating opponent, our game is finished');
+      this.poolTable.resetShotTracking();
+      return;
+    }
+    
     // CRITICAL: Block processing if in 10th frame with no bonus rolls remaining and game should be complete
     if (this.rulesEngine.currentFrame === 9 && 
         this.rulesEngine.bonusRolls === 0 && 
         this.rulesEngine.isGameComplete()) {
       console.log('[PROCESSSHOT] BLOCKED - Game is complete (10th frame, no bonus rolls left)');
-      this.gameState = 'gameOver';
+      // DON'T set gameState = 'gameOver' here! Let advanceFrame() decide the correct state
+      // (It will set 'spectating' in multiplayer if opponent hasn't finished, or 'gameOver' if both done)
       await this.advanceFrame();
       return;
     }
@@ -1417,7 +1465,7 @@ class VRBowlliardsGame {
       
       // CRITICAL FIX: Check if game is complete BEFORE switching turns
       if (this.rulesEngine.isGameComplete()) {
-        console.log("[GAME] Game is complete - ending game instead of switching turns");
+        console.log("[GAME] My game is complete - but opponent may still be playing");
         console.log("[GAME] Final game state:", {
           currentFrame: this.rulesEngine.currentFrame,
           bonusRolls: this.rulesEngine.bonusRolls,
@@ -1426,11 +1474,14 @@ class VRBowlliardsGame {
         });
         
         const finalScore = this.rulesEngine.getTotalScore();
-        this.gameState = 'gameOver';
         
-        // CRITICAL: Set isMyTurn to false so we don't process opponent's shots
+        // Mark MY game as finished, but don't end the whole match yet
+        this.myGameFinished = true;
+        this.gameState = 'spectating';  // New state: watching opponent finish
+        
+        // CRITICAL: Set isMyTurn to false so we don't process shots as our own
         this.isMyTurn = false;
-        console.log("[GAME] Set isMyTurn = false (game complete)");
+        console.log("[GAME] Set myGameFinished = true, gameState = 'spectating'");
         
         // Show local game complete message
         this.showNotification(`Your game is complete! Score: ${finalScore}. Waiting for opponent...`, 5000);
@@ -1545,10 +1596,22 @@ class VRBowlliardsGame {
   onOpponentFrameComplete() {
     console.log("[GAME] Opponent frame complete - checking if my turn");
     
-    // Don't process if game is already over
+    // Don't process if game is already fully over (both players done)
     if (this.gameState === 'gameOver') {
-      console.log("[GAME] Ignoring opponent frame complete - game is over");
-      this.checkGameComplete(); // Still check if both players finished
+      console.log("[GAME] Ignoring opponent frame complete - game is fully over");
+      return;
+    }
+    
+    // If we're spectating (our game finished, watching opponent), just check if they're done too
+    if (this.gameState === 'spectating' || this.myGameFinished) {
+      console.log("[GAME] Spectating - opponent completed a frame, checking if match is over");
+      console.log("[GAME] Opponent progress:", {
+        oppFrame: this.remoteRulesEngine ? this.remoteRulesEngine.currentFrame : 'N/A',
+        oppScore: this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 'N/A',
+        oppComplete: this.remoteRulesEngine ? this.remoteRulesEngine.isGameComplete() : 'N/A'
+      });
+      this.updateScoreboard();
+      this.checkGameComplete(); // Check if opponent also finished their 10 frames
       return;
     }
     
@@ -1651,6 +1714,18 @@ class VRBowlliardsGame {
     if (!this.isMultiplayer) return;
     const myComplete = this.rulesEngine.isGameComplete();
     const oppComplete = this.remoteRulesEngine && this.remoteRulesEngine.isGameComplete();
+    
+    console.log('[GAME] checkGameComplete:', {
+      myComplete,
+      oppComplete,
+      myScore: this.rulesEngine.getTotalScore(),
+      oppScore: this.remoteRulesEngine ? this.remoteRulesEngine.getTotalScore() : 'N/A',
+      myFrame: this.rulesEngine.currentFrame,
+      oppFrame: this.remoteRulesEngine ? this.remoteRulesEngine.currentFrame : 'N/A',
+      myGameFinished: this.myGameFinished,
+      gameState: this.gameState
+    });
+    
     if (myComplete && oppComplete) {
       const myScore = this.rulesEngine.getTotalScore();
       const oppScore = this.remoteRulesEngine.getTotalScore();
@@ -1673,6 +1748,7 @@ class VRBowlliardsGame {
       
       this.gameState = 'gameOver';
       this.isMyTurn = false;  // CRITICAL: Prevent processing any more shots
+      this.myGameFinished = true;  // Ensure this is also set
       console.log('[GAME] ===== GAME OVER ===== Both players finished. Click New Game to play again.');
       
       // Save multiplayer game to stats tracker if logged in (with game result)
@@ -1727,6 +1803,9 @@ class VRBowlliardsGame {
     // Reset new game request tracking
     this.newGameRequestPending = false;
     this.opponentWantsNewGame = false;
+    
+    // Reset game completion tracking
+    this.myGameFinished = false;
 
     // Reset both local and remote rules engines
     this.rulesEngine = new BowlliardsRulesEngine();
@@ -1896,6 +1975,7 @@ class VRBowlliardsGame {
     this.frameJustStarted = true;
     this.ballsSettled = true;
     this.gameState = 'ready';
+    this.myGameFinished = false;  // Reset game completion flag
     this.ballInHand.enable(true);
 
     // Properly redraw scoreboard
